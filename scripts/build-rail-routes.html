@@ -1,0 +1,2571 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Rail route generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #172033;
+      background: #f5f7fb;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+    }
+
+    main {
+      max-width: 1250px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+    }
+
+    p {
+      line-height: 1.45;
+    }
+
+    .panel {
+      background: white;
+      border: 1px solid #d7dce8;
+      border-radius: 14px;
+      padding: 16px;
+      margin: 16px 0;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+    }
+
+    label {
+      display: block;
+      font-weight: 650;
+      margin: 12px 0 6px;
+    }
+
+    input,
+    select,
+    button,
+    textarea {
+      font: inherit;
+    }
+
+    input,
+    select,
+    textarea {
+      box-sizing: border-box;
+      width: 100%;
+      border: 1px solid #c3cad8;
+      border-radius: 10px;
+      padding: 10px;
+      background: white;
+    }
+
+    textarea {
+      min-height: 150px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      margin: 4px;
+      background: #1f5eff;
+      color: white;
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    button.secondary {
+      background: #e8ecf7;
+      color: #172033;
+    }
+
+    button.warning {
+      background: #b54708;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+      margin-top: 12px;
+    }
+
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .stat {
+      background: #eef2ff;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-weight: 650;
+    }
+
+    .stat.good {
+      background: #ecfdf3;
+    }
+
+    .stat.warn {
+      background: #fff8db;
+    }
+
+    .stat.bad {
+      background: #fff1f3;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e1e5ef;
+      padding: 8px;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #f8faff;
+      z-index: 2;
+    }
+
+    tr.good,
+    tr.saved,
+    tr.partial-osm {
+      background: #ecfdf3;
+    }
+
+    tr.missing {
+      background: #f8faff;
+    }
+
+    tr.coarse,
+    tr.straight {
+      background: #fff8db;
+    }
+
+    tr.failed,
+    tr.suspicious,
+    tr.invalid {
+      background: #fff1f3;
+    }
+
+    tr.skipped {
+      background: #f5f5f5;
+      color: #667085;
+    }
+
+    .route-list {
+      max-height: 540px;
+      overflow: auto;
+      border: 1px solid #d7dce8;
+      border-radius: 12px;
+    }
+
+    .small {
+      font-size: 13px;
+      color: #5c667a;
+    }
+
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 750;
+      background: #eef2ff;
+    }
+
+    .pill.good,
+    .pill.saved,
+    .pill.partial-osm {
+      background: #abefc6;
+    }
+
+    .pill.missing {
+      background: #d1e9ff;
+    }
+
+    .pill.coarse,
+    .pill.straight {
+      background: #fedf89;
+    }
+
+    .pill.failed,
+    .pill.suspicious,
+    .pill.invalid {
+      background: #fecdca;
+    }
+
+    .pill.skipped {
+      background: #e4e7ec;
+    }
+
+    .render-note {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #5c667a;
+      font-weight: 650;
+    }
+
+    .log {
+      height: 240px;
+      overflow: auto;
+      background: #101828;
+      color: #d1fadf;
+      border-radius: 12px;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    code {
+      background: #eef2ff;
+      border-radius: 5px;
+      padding: 1px 4px;
+    }
+
+    @media (max-width: 800px) {
+      body {
+        padding: 12px;
+      }
+
+      .row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Rail route generator</h1>
+  <p>
+    Builds and improves <code>rail-routes.json</code>. Fast UI version with OSM segment fallback and chunked OSM fallback for dense routes.
+    It can generate missing routes, check saved route quality, and retry routes that failed or look too coarse. This version requires at least 4 points per kilometre. This version requires at least 4 points per kilometre.
+  </p>
+
+  <section class="panel">
+    <h2>Inputs</h2>
+
+    <label for="sheet-url">Published Google Sheet CSV URL</label>
+    <input id="sheet-url" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vQSXnURctzYRbsd72dEPxIrL1pGwL5bQDxJgPnpSBMrpR--DJRm-HEmjJnzyVQwL5ifFvN4XiJHbmFN/pub?gid=0&single=true&output=csv">
+
+    <div class="row">
+      <div>
+        <label for="locations-file">locations.json</label>
+        <input id="locations-file" type="file" accept=".json,application/json">
+        <p class="small">Use your newest confirmed location cache.</p>
+      </div>
+
+      <div>
+        <label for="rail-routes-file">Existing rail-routes.json, optional</label>
+        <input id="rail-routes-file" type="file" accept=".json,application/json">
+        <p class="small">Use this to add to, check, or fix an existing route cache.</p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="route-date">Search date/time</label>
+        <input id="route-date" type="datetime-local">
+        <p class="small">Transit routing is timetable-based. A normal weekday late morning usually works best.</p>
+      </div>
+
+      <div>
+        <label for="max-routes">Max routes to generate/fix in one run</label>
+        <input id="max-routes" type="number" min="1" max="50" value="5">
+        <p class="small">Keep this low. Transitous and Overpass are public/community services.</p>
+      </div>
+    </div>
+
+    <div class="buttons">
+      <button id="load-button">Load train legs</button>
+      <button id="check-existing-button" class="secondary" disabled>Check existing routes</button>
+      <button id="generate-selected-button" disabled>Generate selected</button>
+      <button id="generate-next-button" disabled>Generate next missing</button>
+      <button id="fix-problem-button" class="warning" disabled>Fix failed/problem routes</button>
+      <button id="show-more-button" class="secondary" disabled>Show more rows</button>
+      <button id="build-preview-button" class="secondary" disabled>Build JSON preview</button>
+      <button id="build-review-button" class="secondary" disabled>Build review list</button>
+      <button id="download-button" disabled>Download rail-routes.json</button>
+      <button id="copy-button" class="secondary" disabled>Copy JSON</button>
+      <button id="clear-log-button" class="secondary">Clear log</button>
+    </div>
+
+    <div class="stats">
+      <span class="stat" id="stat-total">0 train legs</span>
+      <span class="stat good" id="stat-good">0 good</span>
+      <span class="stat" id="stat-missing">0 missing</span>
+      <span class="stat warn" id="stat-coarse">0 coarse</span>
+      <span class="stat warn" id="stat-straight">0 straight</span>
+      <span class="stat bad" id="stat-suspicious">0 suspicious</span>
+      <span class="stat bad" id="stat-failed">0 failed</span>
+      <span class="stat bad" id="stat-invalid">0 invalid</span>
+      <span class="stat" id="stat-skipped">0 skipped</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Train route list</h2>
+    <p class="small">
+      “Check existing routes” audits saved geometry. “Fix failed/problem routes” regenerates routes labelled
+      failed, coarse, straight, suspicious, or invalid. If Transitous returns coarse geometry, this version then tries
+      smaller OSM railway queries between the returned points, chunking dense anchor routes and skipping tiny gaps under 250 m.
+    </p>
+
+    <div id="render-note" class="render-note"></div>
+    <div class="route-list">
+      <table>
+        <thead>
+          <tr>
+            <th><input id="select-all" type="checkbox"></th>
+            <th>Status</th>
+            <th>Route</th>
+            <th>Distance</th>
+            <th>Points</th>
+            <th>Details</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="routes-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Output preview</h2>
+    <p class="small">For speed, this is not rebuilt automatically. Use “Build JSON preview” when you actually need to inspect it.</p>
+    <textarea id="output-preview" readonly placeholder="Preview not built yet. Use Build JSON preview."></textarea>
+  </section>
+
+  <section class="panel">
+    <h2>Review list</h2>
+    <p class="small">For speed, this is not rebuilt automatically. Use “Build review list” after checking routes.</p>
+    <textarea id="review-output" readonly placeholder="Review list not built yet. Use Build review list."></textarea>
+  </section>
+
+  <section class="panel">
+    <h2>Log</h2>
+    <div id="log" class="log"></div>
+  </section>
+</main>
+
+<script>
+const SHEET_URL_INPUT = document.querySelector("#sheet-url");
+const LOCATIONS_FILE_INPUT = document.querySelector("#locations-file");
+const RAIL_ROUTES_FILE_INPUT = document.querySelector("#rail-routes-file");
+const ROUTE_DATE_INPUT = document.querySelector("#route-date");
+const MAX_ROUTES_INPUT = document.querySelector("#max-routes");
+
+const LOAD_BUTTON = document.querySelector("#load-button");
+const CHECK_EXISTING_BUTTON = document.querySelector("#check-existing-button");
+const GENERATE_SELECTED_BUTTON = document.querySelector("#generate-selected-button");
+const GENERATE_NEXT_BUTTON = document.querySelector("#generate-next-button");
+const FIX_PROBLEM_BUTTON = document.querySelector("#fix-problem-button");
+const SHOW_MORE_BUTTON = document.querySelector("#show-more-button");
+const BUILD_PREVIEW_BUTTON = document.querySelector("#build-preview-button");
+const BUILD_REVIEW_BUTTON = document.querySelector("#build-review-button");
+const DOWNLOAD_BUTTON = document.querySelector("#download-button");
+const COPY_BUTTON = document.querySelector("#copy-button");
+const CLEAR_LOG_BUTTON = document.querySelector("#clear-log-button");
+const SELECT_ALL_INPUT = document.querySelector("#select-all");
+
+const ROUTES_BODY = document.querySelector("#routes-body");
+const RENDER_NOTE = document.querySelector("#render-note");
+const OUTPUT_PREVIEW = document.querySelector("#output-preview");
+const REVIEW_OUTPUT = document.querySelector("#review-output");
+const LOG = document.querySelector("#log");
+
+const TRAIN_METHODS = new Set([
+  "train",
+  "rail",
+  "railway",
+  "subway",
+  "metro",
+  "tram",
+  "light rail",
+  "light_rail"
+]);
+
+const PROBLEM_STATUSES = new Set(["failed", "coarse", "straight", "suspicious", "invalid"]);
+const TRANSITOUS_PLAN_URL = "https://api.transitous.org/api/v6/plan";
+const OVERPASS_URLS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://lz4.overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter"
+];
+const ENABLE_OSM_SEGMENT_FALLBACK = true;
+const MIN_OSM_SEGMENT_DISTANCE_METRES = 250;
+const TARGET_OSM_CHUNK_DISTANCE_METRES = 5000;
+const MAX_OSM_SEGMENT_DISTANCE_METRES = 60000;
+const MAX_OSM_QUERIES_PER_ROUTE = 60;
+const OSM_SEGMENT_QUERY_DELAY_MS = 1200;
+const OSM_RATE_LIMIT_BACKOFF_MS = 18000;
+const OSM_FAILED_CHUNK_RETRY_DELAY_MS = 25000;
+const OSM_SERVER_COOLDOWN_MS = 45000;
+const OSM_REQUEST_TIMEOUT_MS = 45000;
+const OSM_FAILED_CHUNK_RETRIES = 1;
+const AUTO_FAN_CLEANUP_ENABLED = true;
+const FAN_CLEANUP_BIN_METRES = 120;
+const FAN_CLEANUP_MAX_BACKTRACK_METRES = 80;
+const FAN_CLEANUP_MAX_SIDEWAYS_JUMP_METRES = 900;
+const FAN_CLEANUP_MIN_KEEP_RATIO = 0.15;
+const overpassServerCooldownUntil = new Map();
+
+let locations = {};
+let savedRailRoutes = { routes: [] };
+let routeRows = [];
+let routeByKey = new Map();
+let visibleRowLimit = 120;
+const ROW_BATCH_SIZE = 120;
+
+setDefaultDateTime();
+
+LOAD_BUTTON.addEventListener("click", loadTrainLegs);
+CHECK_EXISTING_BUTTON.addEventListener("click", checkExistingRoutes);
+GENERATE_SELECTED_BUTTON.addEventListener("click", generateSelectedRoutes);
+GENERATE_NEXT_BUTTON.addEventListener("click", generateNextMissingRoutes);
+FIX_PROBLEM_BUTTON.addEventListener("click", fixProblemRoutes);
+SHOW_MORE_BUTTON.addEventListener("click", showMoreRows);
+BUILD_PREVIEW_BUTTON.addEventListener("click", buildJsonPreview);
+BUILD_REVIEW_BUTTON.addEventListener("click", buildReviewList);
+DOWNLOAD_BUTTON.addEventListener("click", downloadRailRoutes);
+COPY_BUTTON.addEventListener("click", copyJson);
+CLEAR_LOG_BUTTON.addEventListener("click", () => LOG.textContent = "");
+SELECT_ALL_INPUT.addEventListener("change", () => {
+  document.querySelectorAll(".route-checkbox").forEach((checkbox) => {
+    if (!checkbox.disabled) {
+      checkbox.checked = SELECT_ALL_INPUT.checked;
+    }
+  });
+});
+
+function setDefaultDateTime() {
+  const date = new Date();
+  date.setDate(date.getDate() + ((8 - date.getDay()) % 7 || 7));
+  date.setHours(10, 0, 0, 0);
+  ROUTE_DATE_INPUT.value = toDatetimeLocalValue(date);
+}
+
+async function loadTrainLegs() {
+  try {
+    log("Loading inputs...");
+
+    const rawLocations = await readLocationsJson();
+    locations = buildLocationLookup(rawLocations);
+    log(`Built location lookup with ${Object.keys(locations).length} keys.`);
+
+    savedRailRoutes = await readExistingRailRoutesJson();
+    routeByKey = buildSavedRouteMap(savedRailRoutes);
+
+    const csvText = await fetchText(SHEET_URL_INPUT.value.trim());
+    const rows = parseCsv(csvText);
+    const journeys = normaliseJourneyRows(rows);
+
+    const trainJourneys = journeys.filter((journey) => {
+      return TRAIN_METHODS.has(String(journey.method || "").trim().toLowerCase());
+    });
+
+    routeRows = dedupeTrainJourneys(trainJourneys).map((journey) => makeRouteRow(journey));
+    visibleRowLimit = ROW_BATCH_SIZE;
+    clearHeavyTextAreas();
+
+    log(`Loaded ${routeRows.length} unique train routes.`);
+    log(`Existing rail-routes.json contains ${savedRailRoutes.routes.length} saved routes.`);
+
+    renderRoutes();
+    updateButtonStates();
+  } catch (error) {
+    logError("Could not load train legs", error);
+  }
+}
+
+function makeRouteRow(journey) {
+  const fromLocation = findLocation(journey.from);
+  const toLocation = findLocation(journey.to);
+  const directKey = getRailRouteKey(journey.from, journey.to);
+  const reverseKey = getRailRouteKey(journey.to, journey.from);
+  const savedRoute = routeByKey.get(directKey) || routeByKey.get(reverseKey);
+
+  let status = "missing";
+  let message = "";
+  let pointCount = null;
+
+  if (savedRoute) {
+    status = "saved";
+    message = "Already in rail-routes.json. Click check existing routes to audit quality.";
+    pointCount = Array.isArray(savedRoute.points) ? savedRoute.points.length : null;
+  } else if (!fromLocation || !toLocation) {
+    status = "skipped";
+    const missing = [];
+    if (!fromLocation) missing.push(`from: ${journey.from}`);
+    if (!toLocation) missing.push(`to: ${journey.to}`);
+    message = `Missing in locations.json (${missing.join(", ")})`;
+  }
+
+  return {
+    journey,
+    key: directKey,
+    reverseKey,
+    fromLocation,
+    toLocation,
+    savedRoute,
+    status,
+    message,
+    pointCount,
+    distanceMetres: fromLocation && toLocation ? distanceMetres(fromLocation, toLocation) : null
+  };
+}
+
+async function checkExistingRoutes() {
+  if (routeRows.length === 0) {
+    log("Load train legs first.");
+    return;
+  }
+
+  setButtonsDisabled(true);
+  clearHeavyTextAreas();
+
+  let checked = 0;
+  let problems = 0;
+  const savedRows = routeRows.filter((row) => {
+    return routeByKey.get(row.key) || routeByKey.get(row.reverseKey);
+  });
+
+  log(`Checking ${savedRows.length} saved routes in batches...`);
+
+  try {
+    for (let index = 0; index < savedRows.length; index++) {
+      const row = savedRows[index];
+      const savedRoute = routeByKey.get(row.key) || routeByKey.get(row.reverseKey);
+
+      if (!savedRoute) {
+        continue;
+      }
+
+      const audit = auditRoute(savedRoute);
+
+      row.savedRoute = savedRoute;
+      row.status = audit.status;
+      row.message = audit.notes.join(" ");
+      row.pointCount = audit.pointCount;
+
+      checked++;
+
+      if (audit.status !== "good") {
+        problems++;
+      }
+
+      if (index % 10 === 0) {
+        updateStats();
+        if (index < visibleRowLimit) {
+          renderRoutes();
+        }
+        log(`Checked ${index + 1}/${savedRows.length} saved routes...`);
+        await wait(0);
+      }
+    }
+
+    log(`Checked ${checked} saved routes. ${problems} need review/fixing.`);
+  } finally {
+    setButtonsDisabled(false);
+    renderRoutes();
+    updateButtonStates();
+  }
+}
+
+async function generateSelectedRoutes() {
+  const selectedKeys = [...document.querySelectorAll(".route-checkbox:checked")]
+    .map((checkbox) => checkbox.dataset.key);
+
+  const selectedRows = routeRows.filter((row) => {
+    return selectedKeys.includes(row.key) && row.status !== "skipped";
+  });
+
+  await generateRoutes(selectedRows, Number(MAX_ROUTES_INPUT.value || 5), true);
+}
+
+async function generateNextMissingRoutes() {
+  const missingRows = routeRows.filter((row) => row.status === "missing" || row.status === "failed");
+  await generateRoutes(missingRows, Number(MAX_ROUTES_INPUT.value || 5), true);
+}
+
+async function fixProblemRoutes() {
+  const problemRows = routeRows.filter((row) => PROBLEM_STATUSES.has(row.status));
+
+  if (problemRows.length === 0) {
+    log("No failed/problem routes to fix. Run Check existing routes first if needed.");
+    return;
+  }
+
+  await generateRoutes(problemRows, Number(MAX_ROUTES_INPUT.value || 5), true);
+}
+
+async function generateRoutes(rows, limit, overwriteExisting) {
+  if (rows.length === 0) {
+    log("No routes selected/missing/problematic.");
+    return;
+  }
+
+  const boundedRows = rows.slice(0, Math.max(1, limit || 1));
+
+  setButtonsDisabled(true);
+
+  try {
+    for (let index = 0; index < boundedRows.length; index++) {
+      const row = boundedRows[index];
+
+      if (!row.fromLocation || !row.toLocation) {
+        row.status = "skipped";
+        row.message = "Missing location";
+        continue;
+      }
+
+      log(`Generating ${index + 1}/${boundedRows.length}: ${row.journey.from} → ${row.journey.to}`);
+
+      try {
+        const route = await fetchTransitousRoute(row);
+
+        if (!route || route.points.length < 2) {
+          row.status = "failed";
+          row.message = "No usable geometry returned";
+          row.pointCount = 0;
+          log(`No usable route: ${row.journey.from} → ${row.journey.to}`);
+        } else {
+          let savedRoute = {
+            from: row.journey.from,
+            to: row.journey.to,
+            points: simplifyPoints(route.points, 0.00001),
+            distanceMetres: Math.round(route.distanceMetres || distanceMetres(row.fromLocation, row.toLocation)),
+            durationSeconds: route.durationSeconds ? Math.round(route.durationSeconds) : null,
+            source: "Transitous MOTIS API",
+            generatedAt: new Date().toISOString(),
+            details: route.details
+          };
+
+          let audit = auditRoute(savedRoute);
+
+          if (ENABLE_OSM_SEGMENT_FALLBACK && (audit.status === "coarse" || audit.status === "straight")) {
+            log(`Transitous route is ${audit.status}; trying OSM railway segment fallback...`);
+
+            const osmRoute = await buildOsmRailRouteFromAnchorPoints(savedRoute, route.points);
+
+            if (osmRoute) {
+              const osmAudit = auditRoute(osmRoute);
+
+              if (isBetterAudit(osmAudit, audit)) {
+                savedRoute = osmRoute;
+                audit = osmAudit;
+
+                if (osmRoute.osmFallback && osmRoute.osmFallback.failedChunkCount > 0 && audit.status === "coarse") {
+                  audit.status = "partial-osm";
+                  audit.notes = [`Partial OSM improvement: ${osmRoute.osmFallback.successfulChunkCount}/${osmRoute.osmFallback.queryCount} chunks improved. Some gaps still use Transitous anchors.`];
+                }
+
+                log(`OSM fallback improved route quality to ${audit.status} with ${savedRoute.points.length} points.`);
+              } else if (osmRoute.points.length >= savedRoute.points.length * 2) {
+                savedRoute = osmRoute;
+                audit = {
+                  ...osmAudit,
+                  status: "partial-osm",
+                  notes: [`Partial OSM improvement kept because it is much denser: ${osmRoute.points.length} points instead of ${route.points.length}. Some chunks may still be coarse.`]
+                };
+
+                log(`OSM fallback kept as partial-osm with ${savedRoute.points.length} points.`);
+              } else {
+                log(`OSM fallback did not improve enough. Keeping Transitous route marked as ${audit.status}.`);
+              }
+            } else {
+              log("OSM fallback could not build a usable railway geometry.");
+            }
+          }
+
+          addOrReplaceSavedRoute(savedRoute, overwriteExisting);
+          routeByKey = buildSavedRouteMap(savedRailRoutes);
+
+          row.savedRoute = savedRoute;
+          row.status = audit.status;
+          row.message = audit.notes.join(" ");
+          row.pointCount = audit.pointCount;
+
+          log(`Saved route: ${row.journey.from} → ${row.journey.to} (${savedRoute.points.length} points, quality: ${audit.status})`);
+        }
+      } catch (error) {
+        row.status = "failed";
+        row.message = error.message || "Failed";
+        row.pointCount = 0;
+        logError(`Failed: ${row.journey.from} → ${row.journey.to}`, error);
+      }
+
+      clearHeavyTextAreas();
+      renderRoutes();
+      updateButtonStates();
+
+      await wait(1800);
+    }
+  } finally {
+    setButtonsDisabled(false);
+    renderRoutes();
+    updateButtonStates();
+  }
+}
+
+function auditRoute(route) {
+  const points = normalisePoints(route.points || route.coordinates || route.geometry);
+  const pointCount = points.length;
+  const calculatedDistanceMetres = calculatePathDistanceMetres(points);
+  const savedDistanceMetres = Number(route.distanceMetres || 0) || null;
+  const straightDistanceMetres = pointCount >= 2 ? distanceMetres(
+    { lat: points[0][0], lng: points[0][1] },
+    { lat: points[pointCount - 1][0], lng: points[pointCount - 1][1] }
+  ) : null;
+
+  const notes = [];
+  let status = "good";
+
+  if (!route.from || !route.to) {
+    status = "invalid";
+    notes.push("Missing from/to name.");
+  }
+
+  if (pointCount < 2) {
+    status = "invalid";
+    notes.push("Fewer than 2 usable points.");
+  }
+
+  if (status !== "invalid") {
+    const calculatedKm = calculatedDistanceMetres / 1000;
+    const kmPerPoint = pointCount > 1 ? calculatedKm / (pointCount - 1) : Infinity;
+    const distanceRatio = straightDistanceMetres > 0 ? calculatedDistanceMetres / straightDistanceMetres : null;
+    const savedRatio = savedDistanceMetres ? calculatedDistanceMetres / savedDistanceMetres : null;
+
+    const minimumPointsPerKm = 4;
+    const requiredPointCount = Math.ceil(calculatedKm * minimumPointsPerKm);
+    const pointsPerKm = calculatedKm > 0 ? pointCount / calculatedKm : 0;
+
+    if (calculatedKm >= 1 && pointCount < requiredPointCount) {
+      status = worseStatus(status, "coarse");
+      notes.push(`Below target resolution: ${pointsPerKm.toFixed(2)} points/km. Needs at least ${requiredPointCount} points for ${calculatedKm.toFixed(1)} km.`);
+    }
+
+    if (calculatedKm > 40 && pointCount < 12) {
+      status = worseStatus(status, "straight");
+      notes.push("Very few points for a medium/long route. Probably straight or very low-detail.");
+    }
+
+    if (distanceRatio !== null && calculatedKm > 10 && distanceRatio < 1.08 && pointCount < requiredPointCount) {
+      status = worseStatus(status, "straight");
+      notes.push("Calculated path is very close to straight-line distance.");
+    }
+
+    if (distanceRatio !== null && distanceRatio > 4) {
+      status = worseStatus(status, "suspicious");
+      notes.push(`Calculated distance is ${distanceRatio.toFixed(1)}× the straight-line distance.`);
+    }
+
+    if (savedRatio !== null && (savedRatio < 0.6 || savedRatio > 1.8)) {
+      status = worseStatus(status, "suspicious");
+      notes.push(`Saved distance and calculated point distance differ a lot (${savedRatio.toFixed(2)}×).`);
+    }
+
+    if (hasLargeJump(points, Math.max(50000, straightDistanceMetres * 0.35))) {
+      status = worseStatus(status, "suspicious");
+      notes.push("Contains a very large jump between consecutive points.");
+    }
+
+    if (
+      notes.length > 0 &&
+      route.source &&
+      String(route.source).includes("OSM") &&
+      pointCount >= requiredPointCount &&
+      !notes.some((note) => note.includes("very close to straight-line distance")) &&
+      !notes.some((note) => note.includes("differ a lot"))
+    ) {
+      status = "partial-osm";
+      notes.length = 0;
+      notes.push("Looks usable as a partial OSM railway route.");
+    }
+
+    if (notes.length === 0) {
+      notes.push("Looks usable.");
+    }
+  }
+
+  return {
+    status,
+    pointCount,
+    savedDistanceMetres,
+    calculatedDistanceMetres: Math.round(calculatedDistanceMetres || 0),
+    straightDistanceMetres: straightDistanceMetres ? Math.round(straightDistanceMetres) : null,
+    notes
+  };
+}
+
+function worseStatus(current, candidate) {
+  const rank = {
+    good: 0,
+    saved: 0,
+    missing: 0,
+    coarse: 1,
+    straight: 2,
+    failed: 3,
+    suspicious: 4,
+    invalid: 5
+  };
+
+  return rank[candidate] > rank[current] ? candidate : current;
+}
+
+function hasLargeJump(points, thresholdMetres) {
+  if (!Number.isFinite(thresholdMetres) || thresholdMetres <= 0) {
+    return false;
+  }
+
+  for (let index = 1; index < points.length; index++) {
+    const jump = distanceMetres(
+      { lat: points[index - 1][0], lng: points[index - 1][1] },
+      { lat: points[index][0], lng: points[index][1] }
+    );
+
+    if (jump > thresholdMetres) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+function isBetterAudit(candidateAudit, existingAudit) {
+  const rank = {
+    good: 6,
+    "partial-osm": 5,
+    saved: 5,
+    missing: 4,
+    coarse: 3,
+    straight: 2,
+    failed: 1,
+    suspicious: 1,
+    invalid: 0
+  };
+
+  const candidateRank = rank[candidateAudit.status] ?? 0;
+  const existingRank = rank[existingAudit.status] ?? 0;
+
+  if (candidateRank > existingRank) {
+    return true;
+  }
+
+  if (candidateRank === existingRank) {
+    return candidateAudit.pointCount > existingAudit.pointCount;
+  }
+
+  // Keep a much denser OSM result even if the checker still calls it coarse,
+  // because the alternative is usually a very low-detail Transitous line.
+  if (
+    candidateAudit.status === "coarse" &&
+    existingAudit.status === "coarse" &&
+    candidateAudit.pointCount >= existingAudit.pointCount * 2
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+async function buildOsmRailRouteFromAnchorPoints(baseRoute, anchorPoints) {
+  const rawAnchors = normalisePoints(anchorPoints);
+
+  if (rawAnchors.length < 2) {
+    return null;
+  }
+
+  const anchors = buildOsmQueryAnchors(rawAnchors);
+  const plannedSegments = buildOsmQuerySegments(anchors);
+
+  if (plannedSegments.length === 0) {
+    log("OSM fallback: no useful query segments after chunking.");
+    return null;
+  }
+
+  log(`OSM fallback: ${rawAnchors.length} Transitous anchors compressed to ${anchors.length} OSM anchors and ${plannedSegments.length} OSM queries.`);
+
+  const segmentResults = new Array(plannedSegments.length).fill(null);
+  const retryQueue = [];
+
+  let successfulChunkCount = 0;
+  let failedChunkCount = 0;
+  let skippedChunkCount = 0;
+
+  for (let index = 0; index < plannedSegments.length; index++) {
+    const result = await processOsmChunk(plannedSegments[index], index, plannedSegments.length, false);
+
+    segmentResults[index] = result;
+
+    if (result.status === "success") {
+      successfulChunkCount++;
+    } else if (result.status === "skipped") {
+      skippedChunkCount++;
+    } else {
+      failedChunkCount++;
+      retryQueue.push(index);
+    }
+
+    await wait(OSM_SEGMENT_QUERY_DELAY_MS);
+  }
+
+  if (retryQueue.length > 0 && OSM_FAILED_CHUNK_RETRIES > 0) {
+    log(`OSM fallback: ${retryQueue.length} chunks failed. Waiting ${Math.round(OSM_FAILED_CHUNK_RETRY_DELAY_MS / 1000)}s, then retrying once...`);
+    await wait(OSM_FAILED_CHUNK_RETRY_DELAY_MS);
+
+    for (const index of retryQueue) {
+      const previous = segmentResults[index];
+
+      if (!previous || previous.status !== "failed") {
+        continue;
+      }
+
+      const result = await processOsmChunk(plannedSegments[index], index, plannedSegments.length, true);
+
+      if (result.status === "success") {
+        segmentResults[index] = result;
+        successfulChunkCount++;
+        failedChunkCount--;
+        log(`OSM retry ${index + 1}/${plannedSegments.length}: recovered chunk.`);
+      } else {
+        log(`OSM retry ${index + 1}/${plannedSegments.length}: still failed, keeping original anchors.`);
+      }
+
+      await wait(OSM_SEGMENT_QUERY_DELAY_MS);
+    }
+  }
+
+  const combinedPoints = [];
+
+  segmentResults.forEach((result, index) => {
+    if (!result) {
+      appendPoints(combinedPoints, plannedSegments[index].anchorSlice);
+      return;
+    }
+
+    appendPoints(combinedPoints, result.points);
+  });
+
+  let simplified = simplifyPoints(combinedPoints, 0.00001);
+
+  if (AUTO_FAN_CLEANUP_ENABLED && simplified.length > 8) {
+    const cleanedFullRoute = cleanFanGeometryForSegment(
+      simplified,
+      rawAnchors[0],
+      rawAnchors[rawAnchors.length - 1],
+      rawAnchors
+    );
+
+    if (cleanedFullRoute && cleanedFullRoute.length >= 2 && cleanedFullRoute.length < simplified.length) {
+      log(`Auto-cleaned full OSM route geometry: ${simplified.length} points → ${cleanedFullRoute.length} points.`);
+      simplified = simplifyPoints(cleanedFullRoute, 0.00001);
+    }
+  }
+
+  if (successfulChunkCount === 0 || simplified.length <= rawAnchors.length) {
+    return null;
+  }
+
+  return {
+    ...baseRoute,
+    points: simplified,
+    distanceMetres: Math.round(calculatePathDistanceMetres(simplified)),
+    source: "Transitous anchors + OSM Overpass railway chunks",
+    generatedAt: new Date().toISOString(),
+    osmFallback: {
+      createdFrom: baseRoute.source || "Transitous MOTIS API",
+      originalAnchorPointCount: rawAnchors.length,
+      compressedAnchorPointCount: anchors.length,
+      queryCount: plannedSegments.length,
+      successfulChunkCount,
+      failedChunkCount,
+      skippedChunkCount,
+      retriedChunkCount: retryQueue.length,
+      pointCount: simplified.length
+    }
+  };
+}
+
+async function processOsmChunk(segment, index, total, isRetry) {
+  const start = segment.start;
+  const end = segment.end;
+  const segmentDistance = segment.distanceMetres;
+  const label = isRetry ? "OSM retry" : "OSM chunk";
+
+  if (segmentDistance < MIN_OSM_SEGMENT_DISTANCE_METRES) {
+    return {
+      status: "skipped",
+      points: segment.anchorSlice
+    };
+  }
+
+  if (segmentDistance > MAX_OSM_SEGMENT_DISTANCE_METRES) {
+    log(`Skipping OSM chunk ${index + 1}/${total}: ${formatDistance(segmentDistance)} is too large for a safe Overpass query.`);
+    return {
+      status: "skipped",
+      points: segment.anchorSlice
+    };
+  }
+
+  log(`${label} ${index + 1}/${total}: querying railway geometry for ${formatDistance(segmentDistance)} section using ${segment.anchorSlice.length} anchors...`);
+
+  const segmentPoints = await fetchOsmRailSegment(start, end, segment.anchorSlice);
+
+  if (segmentPoints && segmentPoints.length >= 2) {
+    log(`${label} ${index + 1}/${total}: ${segmentPoints.length} rail points.`);
+    return {
+      status: "success",
+      points: segmentPoints
+    };
+  }
+
+  log(`${label} ${index + 1}/${total}: no usable rail geometry yet.`);
+  return {
+    status: "failed",
+    points: segment.anchorSlice
+  };
+}
+
+function buildOsmQueryAnchors(rawAnchors) {
+  if (rawAnchors.length <= 12) {
+    return rawAnchors;
+  }
+
+  const anchors = [rawAnchors[0]];
+  let distanceSinceLastKept = 0;
+
+  for (let index = 1; index < rawAnchors.length - 1; index++) {
+    const previous = rawAnchors[index - 1];
+    const current = rawAnchors[index];
+
+    distanceSinceLastKept += distanceMetres(
+      { lat: previous[0], lng: previous[1] },
+      { lat: current[0], lng: current[1] }
+    );
+
+    if (distanceSinceLastKept >= TARGET_OSM_CHUNK_DISTANCE_METRES) {
+      anchors.push(current);
+      distanceSinceLastKept = 0;
+    }
+  }
+
+  anchors.push(rawAnchors[rawAnchors.length - 1]);
+
+  return anchors;
+}
+
+function buildOsmQuerySegments(anchors) {
+  const segments = [];
+
+  for (let index = 1; index < anchors.length; index++) {
+    const start = anchors[index - 1];
+    const end = anchors[index];
+    const segmentDistance = distanceMetres(
+      { lat: start[0], lng: start[1] },
+      { lat: end[0], lng: end[1] }
+    );
+
+    if (segmentDistance < MIN_OSM_SEGMENT_DISTANCE_METRES) {
+      continue;
+    }
+
+    segments.push({
+      start,
+      end,
+      distanceMetres: segmentDistance,
+      anchorSlice: [start, end]
+    });
+  }
+
+  if (segments.length <= MAX_OSM_QUERIES_PER_ROUTE) {
+    return segments;
+  }
+
+  const stride = Math.ceil(segments.length / MAX_OSM_QUERIES_PER_ROUTE);
+  const reducedSegments = [];
+
+  for (let index = 0; index < segments.length; index += stride) {
+    const group = segments.slice(index, index + stride);
+    const start = group[0].start;
+    const end = group[group.length - 1].end;
+    const anchorSlice = [start, ...group.map((segment) => segment.end)];
+    const distance = distanceMetres(
+      { lat: start[0], lng: start[1] },
+      { lat: end[0], lng: end[1] }
+    );
+
+    reducedSegments.push({
+      start,
+      end,
+      distanceMetres: distance,
+      anchorSlice
+    });
+  }
+
+  log(`OSM fallback: capped route from ${segments.length} possible queries to ${reducedSegments.length} chunked queries.`);
+
+  return reducedSegments;
+}
+
+async function fetchOsmRailSegment(start, end, anchorSlice = [start, end]) {
+  const query = buildOverpassRailSegmentQuery(start, end);
+
+  for (const overpassUrl of await getAvailableOverpassUrls()) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), OSM_REQUEST_TIMEOUT_MS);
+
+      const response = await fetch(overpassUrl, {
+        method: "POST",
+        body: query,
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8"
+        },
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.status === 429) {
+        markOverpassServerCoolingDown(overpassUrl);
+        log(`Overpass rate-limited this server. Cooling down ${shortServerName(overpassUrl)} for ${Math.round(OSM_SERVER_COOLDOWN_MS / 1000)}s.`);
+        await wait(OSM_RATE_LIMIT_BACKOFF_MS);
+        continue;
+      }
+
+      if (response.status === 504 || response.status === 502 || response.status === 503) {
+        log(`Overpass server busy/timeout: ${shortServerName(overpassUrl)} (${response.status}). Trying another server.`);
+        await wait(2500);
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Overpass ${response.status}`);
+      }
+
+      const data = await response.json();
+      const points = extractBestRailPointsForSegment(data, start, end, anchorSlice);
+
+      if (points.length >= 2) {
+        return points;
+      }
+    } catch (error) {
+      const message = error.message || String(error);
+
+      if (message.includes("aborted")) {
+        log(`Overpass timed out for segment: ${shortServerName(overpassUrl)} after ${Math.round(OSM_REQUEST_TIMEOUT_MS / 1000)}s.`);
+      } else {
+        log(`Overpass server failed for segment: ${shortServerName(overpassUrl)} (${message})`);
+      }
+
+      await wait(1500);
+    }
+  }
+
+  return null;
+}
+
+async function getAvailableOverpassUrls() {
+  const now = Date.now();
+  const available = OVERPASS_URLS.filter((url) => {
+    const cooldownUntil = overpassServerCooldownUntil.get(url) || 0;
+    return cooldownUntil <= now;
+  });
+
+  if (available.length > 0) {
+    return available;
+  }
+
+  const earliestCooldownEnd = Math.min(
+    ...OVERPASS_URLS.map((url) => overpassServerCooldownUntil.get(url) || 0)
+  );
+  const waitMs = Math.max(2000, earliestCooldownEnd - now);
+
+  log(`All Overpass servers are cooling down. Waiting ${Math.ceil(waitMs / 1000)}s...`);
+  await wait(waitMs);
+
+  return OVERPASS_URLS;
+}
+
+function markOverpassServerCoolingDown(url) {
+  overpassServerCooldownUntil.set(url, Date.now() + OSM_SERVER_COOLDOWN_MS);
+}
+
+function shortServerName(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+function buildOverpassRailSegmentQuery(start, end) {
+  const bbox = buildSegmentBoundingBox(start, end);
+  const south = bbox.south.toFixed(6);
+  const west = bbox.west.toFixed(6);
+  const north = bbox.north.toFixed(6);
+  const east = bbox.east.toFixed(6);
+
+  return `[out:json][timeout:25];
+(
+  way["railway"~"^(rail|subway|light_rail|tram|narrow_gauge)$"]["service"!~"^(yard|siding|spur|crossover)$"](${south},${west},${north},${east});
+);
+out geom;`;
+}
+
+function buildSegmentBoundingBox(start, end) {
+  const segmentDistance = distanceMetres(
+    { lat: start[0], lng: start[1] },
+    { lat: end[0], lng: end[1] }
+  );
+
+  const bufferMetres = Math.min(1800, Math.max(350, segmentDistance * 0.08));
+  const midLat = (start[0] + end[0]) / 2;
+  const latBuffer = bufferMetres / 111320;
+  const lngBuffer = bufferMetres / (111320 * Math.max(0.2, Math.cos(toRadians(midLat))));
+
+  return {
+    south: Math.min(start[0], end[0]) - latBuffer,
+    north: Math.max(start[0], end[0]) + latBuffer,
+    west: Math.min(start[1], end[1]) - lngBuffer,
+    east: Math.max(start[1], end[1]) + lngBuffer
+  };
+}
+
+function extractBestRailPointsForSegment(data, start, end, anchorSlice = [start, end]) {
+  const elements = Array.isArray(data.elements) ? data.elements : [];
+  const candidates = [];
+
+  elements.forEach((element) => {
+    if (!Array.isArray(element.geometry)) {
+      return;
+    }
+
+    const points = element.geometry
+      .map((point) => [Number(point.lat), Number(point.lon)])
+      .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+
+    if (points.length < 2) {
+      return;
+    }
+
+    const nearPoints = points
+      .map((point) => ({
+        point,
+        projection: projectionAlongSegment(point, start, end),
+        distance: distanceFromPointToSegment(point, start, end)
+      }))
+      .filter((candidate) => {
+        return candidate.projection >= -0.08 &&
+          candidate.projection <= 1.08 &&
+          candidate.distance <= corridorWidthForSegment(start, end, anchorSlice);
+      });
+
+    if (nearPoints.length < 2) {
+      return;
+    }
+
+    nearPoints.forEach((candidate) => candidates.push(candidate));
+  });
+
+  if (candidates.length < 2) {
+    return [];
+  }
+
+  candidates.sort((a, b) => a.projection - b.projection);
+
+  const deduped = [];
+  candidates.forEach((candidate) => {
+    const previous = deduped[deduped.length - 1];
+
+    if (!previous || distanceMetres(
+      { lat: previous[0], lng: previous[1] },
+      { lat: candidate.point[0], lng: candidate.point[1] }
+    ) > 12) {
+      deduped.push(candidate.point);
+    }
+  });
+
+  const startToFirst = distanceMetres(
+    { lat: start[0], lng: start[1] },
+    { lat: deduped[0][0], lng: deduped[0][1] }
+  );
+
+  const endToLast = distanceMetres(
+    { lat: end[0], lng: end[1] },
+    { lat: deduped[deduped.length - 1][0], lng: deduped[deduped.length - 1][1] }
+  );
+
+  if (startToFirst > corridorWidthForSegment(start, end, anchorSlice) * 2 || endToLast > corridorWidthForSegment(start, end, anchorSlice) * 2) {
+    return [];
+  }
+
+  if (!AUTO_FAN_CLEANUP_ENABLED) {
+    return deduped;
+  }
+
+  const cleaned = cleanFanGeometryForSegment(deduped, start, end, anchorSlice);
+
+  if (cleaned && cleaned.length >= 2) {
+    if (cleaned.length < deduped.length) {
+      log(`Auto-cleaned OSM fan/stripe geometry: ${deduped.length} points → ${cleaned.length} points.`);
+    }
+
+    return cleaned;
+  }
+
+  return deduped;
+}
+
+function cleanFanGeometryForSegment(points, start, end, anchorSlice = [start, end]) {
+  if (!Array.isArray(points) || points.length < 8) {
+    return points;
+  }
+
+  const segmentLength = distanceMetres(
+    { lat: start[0], lng: start[1] },
+    { lat: end[0], lng: end[1] }
+  );
+
+  if (segmentLength < 300) {
+    return points;
+  }
+
+  const annotated = points.map((point, originalIndex) => {
+    const projection = projectionAlongSegment(point, start, end);
+    const distanceToAnchor = distanceFromPointToPolyline(point, anchorSlice);
+    const distanceToDirect = distanceFromPointToSegment(point, start, end);
+    const bin = Math.round((projection * segmentLength) / FAN_CLEANUP_BIN_METRES);
+
+    return {
+      point,
+      originalIndex,
+      projection,
+      distanceToAnchor,
+      distanceToDirect,
+      bin
+    };
+  }).filter((candidate) => {
+    return candidate.projection >= -0.08 && candidate.projection <= 1.08;
+  });
+
+  if (annotated.length < 2) {
+    return points;
+  }
+
+  const fanScore = scoreFanGeometry(points, start, end, anchorSlice);
+
+  // Do not over-clean normal rail geometry.
+  if (!fanScore.needsCleanup) {
+    return points;
+  }
+
+  const binMap = new Map();
+
+  annotated.forEach((candidate) => {
+    const existing = binMap.get(candidate.bin);
+
+    if (!existing || fanCandidateScore(candidate) < fanCandidateScore(existing)) {
+      binMap.set(candidate.bin, candidate);
+    }
+  });
+
+  const selected = Array.from(binMap.values())
+    .sort((a, b) => a.projection - b.projection);
+
+  const cleaned = [];
+
+  selected.forEach((candidate) => {
+    const previous = cleaned[cleaned.length - 1];
+
+    if (!previous) {
+      cleaned.push(candidate);
+      return;
+    }
+
+    const backtrackMetres = Math.max(0, (previous.projection - candidate.projection) * segmentLength);
+
+    if (backtrackMetres > FAN_CLEANUP_MAX_BACKTRACK_METRES) {
+      return;
+    }
+
+    const jumpDistance = distanceMetres(
+      { lat: previous.point[0], lng: previous.point[1] },
+      { lat: candidate.point[0], lng: candidate.point[1] }
+    );
+
+    const expectedForwardDistance = Math.max(1, (candidate.projection - previous.projection) * segmentLength);
+    const sidewaysExcess = Math.max(0, jumpDistance - expectedForwardDistance);
+
+    if (sidewaysExcess > FAN_CLEANUP_MAX_SIDEWAYS_JUMP_METRES) {
+      return;
+    }
+
+    cleaned.push(candidate);
+  });
+
+  if (cleaned.length < 2 || cleaned.length < points.length * FAN_CLEANUP_MIN_KEEP_RATIO) {
+    return points;
+  }
+
+  let cleanedPoints = cleaned.map((candidate) => candidate.point);
+
+  // Make sure chunk endpoints still connect to the surrounding route.
+  cleanedPoints = forceChunkEndpointCoverage(cleanedPoints, start, end);
+
+  const cleanedScore = scoreFanGeometry(cleanedPoints, start, end, anchorSlice);
+
+  if (cleanedScore.score >= fanScore.score && cleanedPoints.length < points.length) {
+    // If it did not actually improve the fan score, keep original.
+    return points;
+  }
+
+  return cleanedPoints;
+}
+
+function fanCandidateScore(candidate) {
+  return candidate.distanceToAnchor * 3 +
+    candidate.distanceToDirect * 0.3 +
+    Math.abs(candidate.projection - Math.round(candidate.projection * 100) / 100) * 20;
+}
+
+function forceChunkEndpointCoverage(points, start, end) {
+  const result = [...points];
+
+  const first = result[0];
+  const last = result[result.length - 1];
+
+  if (!first || distanceMetres({ lat: first[0], lng: first[1] }, { lat: start[0], lng: start[1] }) > 250) {
+    result.unshift(start);
+  }
+
+  if (!last || distanceMetres({ lat: last[0], lng: last[1] }, { lat: end[0], lng: end[1] }) > 250) {
+    result.push(end);
+  }
+
+  return result;
+}
+
+function scoreFanGeometry(points, start, end, anchorSlice = [start, end]) {
+  if (!Array.isArray(points) || points.length < 4) {
+    return {
+      needsCleanup: false,
+      score: 0
+    };
+  }
+
+  let backtrackEvents = 0;
+  let diagonalJumpEvents = 0;
+  let sharpTurnEvents = 0;
+  let previousProjection = null;
+  let previousBearing = null;
+
+  const segmentLength = distanceMetres(
+    { lat: start[0], lng: start[1] },
+    { lat: end[0], lng: end[1] }
+  );
+
+  const pathLength = calculatePathDistanceMetres(points);
+  const ratio = segmentLength > 0 ? pathLength / segmentLength : 1;
+
+  for (let index = 1; index < points.length; index++) {
+    const previous = points[index - 1];
+    const current = points[index];
+
+    const sectionLength = distanceMetres(
+      { lat: previous[0], lng: previous[1] },
+      { lat: current[0], lng: current[1] }
+    );
+
+    if (sectionLength < 40) {
+      continue;
+    }
+
+    const projection = projectionAlongSegment(current, start, end);
+
+    if (previousProjection !== null) {
+      const backwardsDistance = (previousProjection - projection) * segmentLength;
+
+      if (backwardsDistance > FAN_CLEANUP_MAX_BACKTRACK_METRES) {
+        backtrackEvents++;
+      }
+    }
+
+    previousProjection = Math.max(previousProjection ?? projection, projection);
+
+    const directExpectedProgress = Math.max(1, sectionLength * Math.abs(Math.cos(toRadians(angleDifferenceDegrees(
+      bearingDegrees(previous, current),
+      bearingDegrees(start, end)
+    )))));
+
+    const lateralDistance = Math.max(0, sectionLength - directExpectedProgress);
+
+    if (sectionLength > FAN_CLEANUP_MAX_SIDEWAYS_JUMP_METRES && lateralDistance > FAN_CLEANUP_MAX_SIDEWAYS_JUMP_METRES * 0.45) {
+      diagonalJumpEvents++;
+    }
+
+    const bearing = bearingDegrees(previous, current);
+
+    if (previousBearing !== null && angleDifferenceDegrees(previousBearing, bearing) > 125) {
+      sharpTurnEvents++;
+    }
+
+    previousBearing = bearing;
+  }
+
+  const score = backtrackEvents * 5 +
+    diagonalJumpEvents * 4 +
+    sharpTurnEvents * 2 +
+    Math.max(0, ratio - 1.8) * 3;
+
+  return {
+    needsCleanup: score >= 6 || ratio > 2.5,
+    score,
+    backtrackEvents,
+    diagonalJumpEvents,
+    sharpTurnEvents,
+    ratio
+  };
+}
+
+function distanceFromPointToPolyline(point, polyline) {
+  if (!Array.isArray(polyline) || polyline.length < 2) {
+    return 0;
+  }
+
+  let best = Infinity;
+
+  for (let index = 1; index < polyline.length; index++) {
+    best = Math.min(
+      best,
+      distanceFromPointToSegment(point, polyline[index - 1], polyline[index])
+    );
+  }
+
+  return best;
+}
+
+function bearingDegrees(from, to) {
+  const lat1 = toRadians(from[0]);
+  const lat2 = toRadians(to[0]);
+  const deltaLng = toRadians(to[1] - from[1]);
+
+  const y = Math.sin(deltaLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
+
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function angleDifferenceDegrees(a, b) {
+  const diff = Math.abs(a - b) % 360;
+  return diff > 180 ? 360 - diff : diff;
+}
+
+
+function corridorWidthForSegment(start, end, anchorSlice = [start, end]) {
+  const segmentDistance = distanceMetres(
+    { lat: start[0], lng: start[1] },
+    { lat: end[0], lng: end[1] }
+  );
+
+  let maxAnchorDeviation = 0;
+
+  anchorSlice.forEach((anchor) => {
+    maxAnchorDeviation = Math.max(
+      maxAnchorDeviation,
+      distanceFromPointToSegment(anchor, start, end)
+    );
+  });
+
+  return Math.min(
+    2500,
+    Math.max(300, segmentDistance * 0.06, maxAnchorDeviation + 300)
+  );
+}
+
+function projectionAlongSegment(point, start, end) {
+  const projected = projectToLocalMetres(point, start);
+  const segmentEnd = projectToLocalMetres(end, start);
+  const lengthSquared = segmentEnd.x * segmentEnd.x + segmentEnd.y * segmentEnd.y;
+
+  if (lengthSquared === 0) {
+    return 0;
+  }
+
+  return (projected.x * segmentEnd.x + projected.y * segmentEnd.y) / lengthSquared;
+}
+
+function distanceFromPointToSegment(point, start, end) {
+  const projection = Math.max(0, Math.min(1, projectionAlongSegment(point, start, end)));
+  const segmentEnd = projectToLocalMetres(end, start);
+  const pointLocal = projectToLocalMetres(point, start);
+
+  const closest = {
+    x: segmentEnd.x * projection,
+    y: segmentEnd.y * projection
+  };
+
+  const dx = pointLocal.x - closest.x;
+  const dy = pointLocal.y - closest.y;
+
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function projectToLocalMetres(point, origin) {
+  const lat = Number(point[0]);
+  const lng = Number(point[1]);
+  const originLat = Number(origin[0]);
+  const originLng = Number(origin[1]);
+  const metresPerDegreeLat = 111320;
+  const metresPerDegreeLng = 111320 * Math.max(0.2, Math.cos(toRadians(originLat)));
+
+  return {
+    x: (lng - originLng) * metresPerDegreeLng,
+    y: (lat - originLat) * metresPerDegreeLat
+  };
+}
+
+
+async function fetchTransitousRoute(row) {
+  const url = new URL(TRANSITOUS_PLAN_URL);
+
+  url.searchParams.set("fromPlace", `${row.fromLocation.lat},${row.fromLocation.lng}`);
+  url.searchParams.set("toPlace", `${row.toLocation.lat},${row.toLocation.lng}`);
+  url.searchParams.set("time", new Date(ROUTE_DATE_INPUT.value).toISOString());
+  url.searchParams.set("detailedLegs", "true");
+  url.searchParams.set("detailedTransfers", "false");
+  url.searchParams.set("joinInterlinedLegs", "true");
+  url.searchParams.set("transitModes", "RAIL,HIGHSPEED_RAIL,LONG_DISTANCE,NIGHT_RAIL,REGIONAL_RAIL,SUBURBAN,SUBWAY,TRAM");
+  url.searchParams.set("directModes", "");
+  url.searchParams.set("preTransitModes", "WALK");
+  url.searchParams.set("postTransitModes", "WALK");
+  url.searchParams.set("maxPreTransitTime", "3600");
+  url.searchParams.set("maxPostTransitTime", "3600");
+  url.searchParams.set("maxDirectTime", "0");
+  url.searchParams.set("searchWindow", "10800");
+  url.searchParams.set("numItineraries", "5");
+  url.searchParams.set("maxItineraries", "5");
+  url.searchParams.set("timeout", "40");
+  url.searchParams.set("language", "en");
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      "Accept": "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Transitous returned ${response.status}: ${text.slice(0, 160)}`);
+  }
+
+  const data = await response.json();
+  const itinerary = chooseBestItinerary(data);
+
+  if (!itinerary) {
+    return null;
+  }
+
+  return itineraryToSavedGeometry(itinerary);
+}
+
+function chooseBestItinerary(data) {
+  const itineraries = Array.isArray(data.itineraries) ? data.itineraries : [];
+
+  if (itineraries.length === 0) {
+    return null;
+  }
+
+  return itineraries
+    .map((itinerary) => ({
+      itinerary,
+      score: scoreItinerary(itinerary)
+    }))
+    .sort((a, b) => a.score - b.score)[0].itinerary;
+}
+
+function scoreItinerary(itinerary) {
+  const legs = Array.isArray(itinerary.legs) ? itinerary.legs : [];
+  const transitLegs = legs.filter((leg) => isTransitLegMode(leg.mode));
+  const railLegs = legs.filter((leg) => isRailLegMode(leg.mode));
+  const duration = Number(itinerary.duration || sumLegDurations(legs) || 0);
+
+  return duration - railLegs.length * 600 + transitLegs.length * 120;
+}
+
+function itineraryToSavedGeometry(itinerary) {
+  const legs = Array.isArray(itinerary.legs) ? itinerary.legs : [];
+  const points = [];
+  const details = [];
+  let durationSeconds = 0;
+
+  legs.forEach((leg) => {
+    durationSeconds += Number(leg.duration || 0);
+
+    const legPoints = extractLegPoints(leg);
+
+    if (legPoints.length > 0) {
+      appendPoints(points, legPoints);
+    } else if (leg.from && leg.to && Number.isFinite(Number(leg.from.lat)) && Number.isFinite(Number(leg.to.lat))) {
+      appendPoints(points, [
+        [Number(leg.from.lat), Number(leg.from.lon)],
+        [Number(leg.to.lat), Number(leg.to.lon)]
+      ]);
+    }
+
+    if (isTransitLegMode(leg.mode)) {
+      details.push({
+        mode: leg.mode || "",
+        displayName: leg.displayName || leg.routeShortName || leg.routeLongName || "",
+        from: leg.from && leg.from.name ? leg.from.name : "",
+        to: leg.to && leg.to.name ? leg.to.name : "",
+        startTime: leg.startTime || "",
+        endTime: leg.endTime || "",
+        agencyName: leg.agencyName || ""
+      });
+    }
+  });
+
+  return {
+    points,
+    distanceMetres: calculatePathDistanceMetres(points),
+    durationSeconds,
+    details
+  };
+}
+
+function extractLegPoints(leg) {
+  const geometry = leg.legGeometry;
+
+  if (!geometry) {
+    return [];
+  }
+
+  if (typeof geometry === "string") {
+    return decodePolyline(geometry, 6);
+  }
+
+  if (typeof geometry.points === "string") {
+    return decodePolyline(geometry.points, Number(geometry.precision || 6));
+  }
+
+  if (typeof geometry.polyline === "string") {
+    return decodePolyline(geometry.polyline, Number(geometry.precision || 6));
+  }
+
+  if (Array.isArray(geometry.points)) {
+    return normalisePointArray(geometry.points);
+  }
+
+  if (Array.isArray(geometry.coordinates)) {
+    return normalisePointArray(geometry.coordinates);
+  }
+
+  return [];
+}
+
+function decodePolyline(encoded, precision = 6) {
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const coordinates = [];
+  const factor = Math.pow(10, precision);
+
+  while (index < encoded.length) {
+    let result = 1;
+    let shift = 0;
+    let byte = null;
+
+    do {
+      byte = encoded.charCodeAt(index++) - 63 - 1;
+      result += byte << shift;
+      shift += 5;
+    } while (byte >= 0x1f);
+
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    result = 1;
+    shift = 0;
+
+    do {
+      byte = encoded.charCodeAt(index++) - 63 - 1;
+      result += byte << shift;
+      shift += 5;
+    } while (byte >= 0x1f);
+
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    coordinates.push([lat / factor, lng / factor]);
+  }
+
+  return coordinates.filter(([pointLat, pointLng]) => {
+    return Number.isFinite(pointLat) && Number.isFinite(pointLng);
+  });
+}
+
+function normalisePointArray(points) {
+  return points
+    .map((point) => {
+      if (Array.isArray(point) && point.length >= 2) {
+        const a = Number(point[0]);
+        const b = Number(point[1]);
+
+        if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
+          return [a, b];
+        }
+
+        return [b, a];
+      }
+
+      if (point && typeof point === "object") {
+        return [Number(point.lat), Number(point.lng ?? point.lon)];
+      }
+
+      return null;
+    })
+    .filter((point) => {
+      return point && Number.isFinite(point[0]) && Number.isFinite(point[1]);
+    });
+}
+
+function normalisePoints(points) {
+  if (!Array.isArray(points)) {
+    return [];
+  }
+
+  return points
+    .map((point) => {
+      if (Array.isArray(point) && point.length >= 2) {
+        return [Number(point[0]), Number(point[1])];
+      }
+
+      if (point && typeof point === "object") {
+        return [Number(point.lat), Number(point.lng ?? point.lon)];
+      }
+
+      return null;
+    })
+    .filter((point) => {
+      return point &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1]) &&
+        Math.abs(point[0]) <= 90 &&
+        Math.abs(point[1]) <= 180;
+    });
+}
+
+function appendPoints(target, points) {
+  points.forEach((point) => {
+    const previous = target[target.length - 1];
+
+    if (
+      previous &&
+      Math.abs(previous[0] - point[0]) < 0.000001 &&
+      Math.abs(previous[1] - point[1]) < 0.000001
+    ) {
+      return;
+    }
+
+    target.push(point);
+  });
+}
+
+function simplifyPoints(points, tolerance) {
+  if (points.length <= 2) {
+    return points;
+  }
+
+  const simplified = [points[0]];
+
+  for (let index = 1; index < points.length - 1; index++) {
+    const previous = simplified[simplified.length - 1];
+    const current = points[index];
+
+    if (
+      Math.abs(previous[0] - current[0]) >= tolerance ||
+      Math.abs(previous[1] - current[1]) >= tolerance
+    ) {
+      simplified.push(current);
+    }
+  }
+
+  simplified.push(points[points.length - 1]);
+
+  return simplified.map(([lat, lng]) => [
+    Number(lat.toFixed(6)),
+    Number(lng.toFixed(6))
+  ]);
+}
+
+function addOrReplaceSavedRoute(route, overwriteExisting) {
+  if (!Array.isArray(savedRailRoutes.routes)) {
+    savedRailRoutes.routes = [];
+  }
+
+  const key = getRailRouteKey(route.from, route.to);
+  const reverseKey = getRailRouteKey(route.to, route.from);
+
+  const existing = savedRailRoutes.routes.find((candidate) => {
+    const candidateKey = getRailRouteKey(candidate.from, candidate.to);
+    return candidateKey === key || candidateKey === reverseKey;
+  });
+
+  if (existing && !overwriteExisting) {
+    return;
+  }
+
+  savedRailRoutes.routes = savedRailRoutes.routes.filter((candidate) => {
+    const candidateKey = getRailRouteKey(candidate.from, candidate.to);
+    return candidateKey !== key && candidateKey !== reverseKey;
+  });
+
+  savedRailRoutes.routes.push(route);
+  savedRailRoutes.routes.sort((a, b) => {
+    return `${a.from} ${a.to}`.localeCompare(`${b.from} ${b.to}`);
+  });
+}
+
+function buildSavedRouteMap(data) {
+  const map = new Map();
+  const routes = Array.isArray(data.routes) ? data.routes : [];
+
+  routes.forEach((route) => {
+    if (route && route.from && route.to) {
+      map.set(getRailRouteKey(route.from, route.to), route);
+    }
+  });
+
+  return map;
+}
+
+function buildLocationLookup(rawLocations) {
+  const lookup = {};
+  addLocationsFromUnknownShape(rawLocations, lookup, "");
+  return lookup;
+}
+
+function addLocationsFromUnknownShape(value, lookup, fallbackKey) {
+  if (!value) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => addLocationsFromUnknownShape(item, lookup, String(index)));
+    return;
+  }
+
+  if (typeof value !== "object") {
+    return;
+  }
+
+  if (isLocationObject(value)) {
+    addLocationToLookup(lookup, fallbackKey, value);
+    return;
+  }
+
+  const likelyContainers = ["locations", "data", "items", "places", "features"];
+
+  likelyContainers.forEach((containerKey) => {
+    if (Array.isArray(value[containerKey]) || typeof value[containerKey] === "object") {
+      addLocationsFromUnknownShape(value[containerKey], lookup, containerKey);
+    }
+  });
+
+  Object.entries(value).forEach(([key, item]) => {
+    if (likelyContainers.includes(key)) {
+      return;
+    }
+
+    if (item && typeof item === "object") {
+      addLocationsFromUnknownShape(item, lookup, key);
+    }
+  });
+}
+
+function isLocationObject(value) {
+  const lat = getLat(value);
+  const lng = getLng(value);
+
+  return Number.isFinite(lat) && Number.isFinite(lng);
+}
+
+function addLocationToLookup(lookup, key, location) {
+  const lat = getLat(location);
+  const lng = getLng(location);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return;
+  }
+
+  const normalisedLocation = {
+    ...location,
+    lat,
+    lng
+  };
+
+  const possibleKeys = [
+    key,
+    location.key,
+    location.name,
+    location.shortName,
+    location.searchName,
+    location.displayName,
+    location.label,
+    location.place,
+    location.query,
+    location.originalName,
+    location.alias
+  ];
+
+  possibleKeys
+    .filter(Boolean)
+    .forEach((candidateKey) => {
+      lookup[normalisePlaceKey(candidateKey)] = normalisedLocation;
+    });
+}
+
+function getLat(location) {
+  return Number(
+    location.lat ??
+    location.latitude ??
+    (location.geometry && location.geometry.lat) ??
+    (location.geometry && location.geometry.coordinates && location.geometry.coordinates[1])
+  );
+}
+
+function getLng(location) {
+  return Number(
+    location.lng ??
+    location.lon ??
+    location.long ??
+    location.longitude ??
+    (location.geometry && location.geometry.lng) ??
+    (location.geometry && location.geometry.lon) ??
+    (location.geometry && location.geometry.coordinates && location.geometry.coordinates[0])
+  );
+}
+
+function findLocation(placeName) {
+  const direct = locations[normalisePlaceKey(placeName)];
+
+  if (direct) {
+    return direct;
+  }
+
+  const cleaned = normalisePlaceKey(cleanPlaceName(placeName));
+  const cleanedMatch = locations[cleaned];
+
+  if (cleanedMatch) {
+    return cleanedMatch;
+  }
+
+  return null;
+}
+
+function parseCsv(csvText) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < csvText.length; index++) {
+    const char = csvText[index];
+    const next = csvText[index + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      field += '"';
+      index++;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") {
+        index++;
+      }
+
+      row.push(field);
+      field = "";
+
+      if (row.some((value) => value.trim() !== "")) {
+        rows.push(row);
+      }
+
+      row = [];
+      continue;
+    }
+
+    field += char;
+  }
+
+  row.push(field);
+
+  if (row.some((value) => value.trim() !== "")) {
+    rows.push(row);
+  }
+
+  const headers = rows.shift().map((header) => header.trim());
+
+  return rows.map((values) => {
+    const record = {};
+
+    headers.forEach((header, index) => {
+      record[header] = values[index] || "";
+    });
+
+    return record;
+  });
+}
+
+function normaliseJourneyRows(rows) {
+  return rows
+    .map((row) => ({
+      from: row.From || row.from || "",
+      to: row.To || row.to || "",
+      method: row.method || row.Method || "",
+      distance: row.distance || row.Distance || "",
+      time: row.time || row.Time || "",
+      total: row.Total || row.total || ""
+    }))
+    .filter((row) => row.from && row.to);
+}
+
+function dedupeTrainJourneys(journeys) {
+  const seen = new Set();
+  const unique = [];
+
+  journeys.forEach((journey) => {
+    const key = getRailRouteKey(journey.from, journey.to);
+    const reverseKey = getRailRouteKey(journey.to, journey.from);
+
+    if (seen.has(key) || seen.has(reverseKey)) {
+      return;
+    }
+
+    seen.add(key);
+    unique.push(journey);
+  });
+
+  return unique;
+}
+
+async function readLocationsJson() {
+  const file = LOCATIONS_FILE_INPUT.files[0];
+
+  if (!file) {
+    throw new Error("Choose your existing locations.json first.");
+  }
+
+  return await readJsonFile(file);
+}
+
+async function readExistingRailRoutesJson() {
+  const file = RAIL_ROUTES_FILE_INPUT.files[0];
+
+  if (!file) {
+    return { routes: [] };
+  }
+
+  const data = await readJsonFile(file);
+
+  if (Array.isArray(data)) {
+    return { routes: data };
+  }
+
+  if (data && Array.isArray(data.routes)) {
+    return data;
+  }
+
+  const routes = [];
+
+  if (data && typeof data === "object") {
+    Object.entries(data).forEach(([key, route]) => {
+      if (!route) {
+        return;
+      }
+
+      const [from, to] = key.includes("->") ? key.split("->") : key.split("||");
+
+      routes.push({
+        from: route.from || from || "",
+        to: route.to || to || "",
+        ...route
+      });
+    });
+  }
+
+  return { routes };
+}
+
+function readJsonFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      try {
+        resolve(JSON.parse(reader.result));
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
+async function fetchText(url) {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Fetch failed ${response.status}: ${url}`);
+  }
+
+  return await response.text();
+}
+
+function renderRoutes() {
+  ROUTES_BODY.innerHTML = "";
+
+  const visibleRows = routeRows.slice(0, visibleRowLimit);
+
+  visibleRows.forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.className = row.status;
+
+    const checkboxDisabled = row.status === "skipped";
+
+    tr.innerHTML = `
+      <td>
+        <input class="route-checkbox" data-key="${escapeAttribute(row.key)}" type="checkbox" ${checkboxDisabled ? "disabled" : ""}>
+      </td>
+      <td><span class="pill ${escapeAttribute(row.status)}">${escapeHtml(row.status)}</span></td>
+      <td>
+        <strong>${escapeHtml(row.journey.from)} → ${escapeHtml(row.journey.to)}</strong><br>
+        <span class="small">${escapeHtml(row.journey.method)}</span>
+      </td>
+      <td>${row.distanceMetres ? formatDistance(row.distanceMetres) : "—"}</td>
+      <td>${row.pointCount ?? "—"}</td>
+      <td class="small">${escapeHtml(row.message || "")}</td>
+      <td>
+        <button class="secondary" data-generate-key="${escapeAttribute(row.key)}" ${checkboxDisabled ? "disabled" : ""}>Generate / replace</button>
+      </td>
+    `;
+
+    ROUTES_BODY.appendChild(tr);
+  });
+
+  ROUTES_BODY.querySelectorAll("[data-generate-key]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const key = button.dataset.generateKey;
+      const row = routeRows.find((candidate) => candidate.key === key);
+
+      if (row) {
+        await generateRoutes([row], 1, true);
+      }
+    });
+  });
+
+  if (routeRows.length > 0) {
+    RENDER_NOTE.textContent = `Showing ${Math.min(visibleRowLimit, routeRows.length)} of ${routeRows.length} routes.`;
+  } else {
+    RENDER_NOTE.textContent = "";
+  }
+
+  SHOW_MORE_BUTTON.disabled = visibleRowLimit >= routeRows.length;
+  updateStats();
+  updateButtonStates();
+}
+
+function updateStats() {
+  const counts = {
+    total: routeRows.length,
+    good: countStatus("good") + countStatus("saved"),
+    missing: countStatus("missing"),
+    coarse: countStatus("coarse"),
+    straight: countStatus("straight"),
+    suspicious: countStatus("suspicious"),
+    failed: countStatus("failed"),
+    invalid: countStatus("invalid"),
+    skipped: countStatus("skipped")
+  };
+
+  document.querySelector("#stat-total").textContent = `${counts.total} train legs`;
+  document.querySelector("#stat-good").textContent = `${counts.good} good/saved`;
+  document.querySelector("#stat-missing").textContent = `${counts.missing} missing`;
+  document.querySelector("#stat-coarse").textContent = `${counts.coarse} coarse`;
+  document.querySelector("#stat-straight").textContent = `${counts.straight} straight`;
+  document.querySelector("#stat-suspicious").textContent = `${counts.suspicious} suspicious`;
+  document.querySelector("#stat-failed").textContent = `${counts.failed} failed`;
+  document.querySelector("#stat-invalid").textContent = `${counts.invalid} invalid`;
+  document.querySelector("#stat-skipped").textContent = `${counts.skipped} skipped`;
+}
+
+function countStatus(status) {
+  return routeRows.filter((row) => row.status === status).length;
+}
+
+function updateButtonStates() {
+  const hasRows = routeRows.length > 0;
+  const hasMissing = routeRows.some((row) => row.status === "missing" || row.status === "failed");
+  const hasProblem = routeRows.some((row) => PROBLEM_STATUSES.has(row.status));
+  const hasOutput = savedRailRoutes.routes && savedRailRoutes.routes.length > 0;
+
+  CHECK_EXISTING_BUTTON.disabled = !hasRows;
+  GENERATE_SELECTED_BUTTON.disabled = !hasRows;
+  GENERATE_NEXT_BUTTON.disabled = !hasMissing;
+  FIX_PROBLEM_BUTTON.disabled = !hasProblem;
+  SHOW_MORE_BUTTON.disabled = !hasRows || visibleRowLimit >= routeRows.length;
+  BUILD_PREVIEW_BUTTON.disabled = !hasOutput;
+  BUILD_REVIEW_BUTTON.disabled = !hasRows;
+  DOWNLOAD_BUTTON.disabled = !hasOutput;
+  COPY_BUTTON.disabled = !hasOutput;
+}
+
+function setButtonsDisabled(disabled) {
+  LOAD_BUTTON.disabled = disabled;
+  CHECK_EXISTING_BUTTON.disabled = disabled;
+  GENERATE_SELECTED_BUTTON.disabled = disabled;
+  GENERATE_NEXT_BUTTON.disabled = disabled;
+  FIX_PROBLEM_BUTTON.disabled = disabled;
+  SHOW_MORE_BUTTON.disabled = disabled;
+  BUILD_PREVIEW_BUTTON.disabled = disabled;
+  BUILD_REVIEW_BUTTON.disabled = disabled;
+  DOWNLOAD_BUTTON.disabled = disabled;
+  COPY_BUTTON.disabled = disabled;
+}
+
+function updateOutputPreview() {
+  buildJsonPreview();
+}
+
+function buildJsonPreview() {
+  OUTPUT_PREVIEW.value = JSON.stringify(savedRailRoutes, null, 2);
+  updateButtonStates();
+}
+
+function updateReviewOutput() {
+  buildReviewList();
+}
+
+function buildReviewList() {
+  const reviewRows = routeRows.filter((row) => {
+    return row.status !== "good" && row.status !== "saved" && row.status !== "missing";
+  });
+
+  REVIEW_OUTPUT.value = reviewRows.map((row) => {
+    return `${row.status.toUpperCase()}: ${row.journey.from} → ${row.journey.to}
+  points: ${row.pointCount ?? "—"}
+  notes: ${row.message || ""}`;
+  }).join("\n\n");
+}
+
+function clearHeavyTextAreas() {
+  OUTPUT_PREVIEW.value = "";
+  OUTPUT_PREVIEW.placeholder = "Preview not built yet. Use Build JSON preview.";
+  REVIEW_OUTPUT.value = "";
+  REVIEW_OUTPUT.placeholder = "Review list not built yet. Use Build review list.";
+}
+
+function showMoreRows() {
+  visibleRowLimit += ROW_BATCH_SIZE;
+  renderRoutes();
+}
+
+function downloadRailRoutes() {
+  const blob = new Blob([JSON.stringify(savedRailRoutes, null, 2)], {
+    type: "application/json"
+  });
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "rail-routes.json";
+  link.click();
+
+  URL.revokeObjectURL(link.href);
+}
+
+async function copyJson() {
+  await navigator.clipboard.writeText(JSON.stringify(savedRailRoutes, null, 2));
+  log("Copied rail-routes.json to clipboard.");
+}
+
+function normalisePlaceKey(value) {
+  return cleanPlaceName(value)
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[.,]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanPlaceName(value) {
+  return String(value || "").trim();
+}
+
+function getRailRouteKey(from, to) {
+  return `${normalisePlaceKey(from)}->${normalisePlaceKey(to)}`;
+}
+
+function isTransitLegMode(mode) {
+  return [
+    "TRANSIT",
+    "TRAM",
+    "SUBWAY",
+    "RAIL",
+    "HIGHSPEED_RAIL",
+    "LONG_DISTANCE",
+    "NIGHT_RAIL",
+    "REGIONAL_FAST_RAIL",
+    "REGIONAL_RAIL",
+    "SUBURBAN",
+    "FUNICULAR"
+  ].includes(String(mode || "").toUpperCase());
+}
+
+function isRailLegMode(mode) {
+  return [
+    "TRAM",
+    "SUBWAY",
+    "RAIL",
+    "HIGHSPEED_RAIL",
+    "LONG_DISTANCE",
+    "NIGHT_RAIL",
+    "REGIONAL_FAST_RAIL",
+    "REGIONAL_RAIL",
+    "SUBURBAN",
+    "FUNICULAR"
+  ].includes(String(mode || "").toUpperCase());
+}
+
+function sumLegDurations(legs) {
+  return legs.reduce((total, leg) => total + Number(leg.duration || 0), 0);
+}
+
+function distanceMetres(firstPoint, secondPoint) {
+  const earthRadiusMetres = 6371000;
+  const lat1 = toRadians(Number(firstPoint.lat));
+  const lat2 = toRadians(Number(secondPoint.lat));
+  const deltaLat = toRadians(Number(secondPoint.lat) - Number(firstPoint.lat));
+  const deltaLng = toRadians(Number(secondPoint.lng ?? secondPoint.lon) - Number(firstPoint.lng ?? firstPoint.lon));
+
+  const haversine =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+
+  const centralAngle = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+
+  return earthRadiusMetres * centralAngle;
+}
+
+function calculatePathDistanceMetres(points) {
+  if (!Array.isArray(points) || points.length < 2) {
+    return 0;
+  }
+
+  let total = 0;
+
+  for (let index = 1; index < points.length; index++) {
+    total += distanceMetres(
+      { lat: points[index - 1][0], lng: points[index - 1][1] },
+      { lat: points[index][0], lng: points[index][1] }
+    );
+  }
+
+  return total;
+}
+
+function toRadians(degrees) {
+  return degrees * Math.PI / 180;
+}
+
+function formatDistance(metres) {
+  if (!Number.isFinite(Number(metres)) || !metres) {
+    return "—";
+  }
+
+  if (metres < 1000) {
+    return `${Math.round(metres)} m`;
+  }
+
+  return `${(metres / 1000).toFixed(0)} km`;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+function toDatetimeLocalValue(date) {
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function log(message) {
+  LOG.textContent += `${new Date().toLocaleTimeString()}  ${message}\n`;
+  LOG.scrollTop = LOG.scrollHeight;
+}
+
+function logError(message, error) {
+  console.error(message, error);
+  log(`${message}: ${error.message || error}`);
+}
+</script>
+</body>
+</html>

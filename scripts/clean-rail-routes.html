@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rail routes cleaner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f5f7fb;color:#172033;margin:0;padding:24px}main{max-width:1500px;margin:auto;display:grid;gap:16px}.card{background:#fff;border:1px solid #d8deea;border-radius:12px;padding:16px;box-shadow:0 1px 4px #0001}.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end}.control{display:flex;flex-direction:column;gap:4px}label{font-size:13px;font-weight:700;color:#344054}input[type=number]{width:105px;padding:7px;border:1px solid #b7c0d4;border-radius:8px}button{font:inherit;font-weight:700;border:0;border-radius:9px;padding:9px 12px;background:#155eef;color:white;cursor:pointer}button.secondary{background:#eef2f8;color:#27364f}button.warning{background:#b42318}button:disabled{opacity:.45;cursor:not-allowed}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:12px}.stat{border:1px solid #e1e6f0;background:#f8fafd;border-radius:10px;padding:10px}.stat strong{display:block;font-size:22px}.small{font-size:13px;color:#5a6578}.route-list{overflow:auto;max-height:530px;border:1px solid #d8deea;border-radius:10px}table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid #e8edf5;padding:8px 10px;vertical-align:top;text-align:left;white-space:nowrap}th{position:sticky;top:0;background:#f2f5fa;z-index:1}td.message{white-space:normal;min-width:420px}tr.good{background:#f0fdf4}tr.needs-clean,tr.cleaned,tr.partial{background:#fffbeb}tr.failed,tr.suspicious{background:#fff1f2}.pill{display:inline-block;padding:2px 7px;border-radius:999px;font-size:12px;font-weight:800;background:#dbe4f0}.pill.good{background:#bbf7d0}.pill.cleaned{background:#fde68a}.pill.needs-clean,.pill.partial{background:#fed7aa}.pill.failed,.pill.suspicious{background:#fecdd3}.log{height:280px;overflow:auto;background:#111827;color:#d1d5db;padding:10px;border-radius:10px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;white-space:pre-wrap}textarea{width:100%;min-height:180px;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}code{background:#e8edf7;padding:2px 5px;border-radius:4px}.note{margin:8px 0;font-size:13px;color:#5c667a;font-weight:650}
+</style>
+</head>
+<body>
+<main>
+<section class="card"><h1>Rail routes cleaner</h1><p>Loads an existing <code>rail-routes.json</code> and lets you run separate passes: dezigzag, dedupe/thin, then staged OSM gap filling.</p>
+<div class="controls">
+<div class="control"><label>rail-routes.json</label><input id="file" type="file" accept=".json,application/json"></div>
+<div class="control"><label>Fill gaps over metres</label><input id="gap" type="number" min="20" max="2000" step="10" value="100"></div>
+<div class="control"><label>Min point spacing metres</label><input id="spacing" type="number" min="5" max="200" step="5" value="20"></div>
+<div class="control"><label>Max OSM gap query km</label><input id="maxGap" type="number" min="1" max="80" step="1" value="20"></div>
+<div class="control"><label>Max distance ratio</label><input id="ratio" type="number" min="1.1" max="6" step="0.1" value="2.4"></div>
+</div>
+<div class="controls" style="margin-top:12px"><button id="scan" disabled>Scan routes</button><button id="autoNext" class="warning" disabled>Auto clean queue</button>
+<button id="dezigSel" class="warning" disabled>Dezigzag/fan selected</button><button id="dezigNext" class="warning" disabled>Dezigzag/fan next problem</button><button id="dezigAll" class="warning" disabled>Dezigzag/fan all problems</button>
+<button id="dedupeSel" class="warning" disabled>Dedupe/thin selected</button><button id="dedupeNext" class="warning" disabled>Dedupe/thin next problem</button><button id="dedupeAll" class="warning" disabled>Dedupe/thin all problems</button>
+<button id="gapSel" class="warning" disabled>Fill gaps selected</button><button id="gapNext" class="warning" disabled>Fill gaps next problem</button><button id="gapAll" class="warning" disabled>Fill gaps all problems</button>
+<button id="more" class="secondary" disabled>Show more rows</button><button id="preview" class="secondary" disabled>Build JSON preview</button><button id="download" disabled>Download cleaned rail-routes.json</button><button id="clear" class="secondary">Clear log</button></div>
+<p class="small">This page only downloads a cleaned file when you click download. It does not overwrite your project files. Use Auto clean queue to keep choosing useful passes automatically. It spends up to 5 minutes on each route, skips suspicious/blocked routes, then moves on. It now rejects gap-fill replacements that do not actually reduce the gap. Suggested manual order: Dezigzag, Scan, Dedupe/thin, Scan, then staged Gap-fill.</p>
+<div class="stats"><div class="stat"><strong id="stTotal">0</strong>Total routes</div><div class="stat"><strong id="stGood">0</strong>Good</div><div class="stat"><strong id="stProb">0</strong>Need cleaning</div><div class="stat"><strong id="stClean">0</strong>Cleaned this session</div><div class="stat"><strong id="stFail">0</strong>Failed/suspicious</div></div></section>
+<section class="card"><h2>Routes</h2><div id="renderNote" class="note"></div><div class="route-list"><table><thead><tr><th></th><th>Status</th><th>Route</th><th>Points</th><th>Distance</th><th>Gaps</th><th>Message</th></tr></thead><tbody id="body"></tbody></table></div></section>
+<section class="card"><h2>Log</h2><div id="log" class="log"></div></section>
+<section class="card"><h2>Output preview</h2><p class="small">For speed, this is not built automatically.</p><textarea id="out" readonly placeholder="Preview not built yet."></textarea></section>
+</main>
+<script>
+window.addEventListener("error", (event) => {
+  const logEl = document.querySelector("#log");
+  if (logEl) {
+    logEl.textContent += `${new Date().toLocaleTimeString()}  JS error: ${event.message}
+`;
+  }
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  const logEl = document.querySelector("#log");
+  if (logEl) {
+    const reason = event.reason && (event.reason.message || event.reason);
+    logEl.textContent += `${new Date().toLocaleTimeString()}  Promise error: ${reason}
+`;
+  }
+});
+
+const OVERPASS_URLS=["https://overpass-api.de/api/interpreter","https://lz4.overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter"];
+const TIMEOUT=45000,RATE_WAIT=18000,SERVER_COOLDOWN=45000,BETWEEN=1200,MAX_GAP_QUERIES=120,FAN_BIN=120,BACKTRACK=80,SIDEWAYS=900,RENDER=140;
+const $=s=>document.querySelector(s);const file=$('#file'),scanBtn=$('#scan'),autoNextBtn=$('#autoNext'),dezigSelBtn=$('#dezigSel'),dezigNextBtn=$('#dezigNext'),dezigAllBtn=$('#dezigAll'),dedupeSelBtn=$('#dedupeSel'),dedupeNextBtn=$('#dedupeNext'),dedupeAllBtn=$('#dedupeAll'),gapSelBtn=$('#gapSel'),gapNextBtn=$('#gapNext'),gapAllBtn=$('#gapAll'),moreBtn=$('#more'),previewBtn=$('#preview'),downloadBtn=$('#download'),clearBtn=$('#clear'),body=$('#body'),renderNote=$('#renderNote'),out=$('#out'),logEl=$('#log');
+let saved={routes:[]},rows=[],visible=RENDER,cleaned=0,cooldown=new Map(),autoRunning=false,autoStopRequested=false;
+file.onchange=load;scanBtn.onclick=scan;autoNextBtn.onclick=toggleAutoCleanQueue;
+dezigSelBtn.onclick=()=>runPassRows(selectedRows(),'Dezigzag pass');dezigNextBtn.onclick=()=>runNextPass('Dezigzag pass');dezigAllBtn.onclick=()=>runPassRows(rows.filter(r=>problem(r.status)),'Dezigzag pass');
+dedupeSelBtn.onclick=()=>runPassRows(selectedRows(),'Dedupe/thin pass');dedupeNextBtn.onclick=()=>runNextPass('Dedupe/thin pass');dedupeAllBtn.onclick=()=>runPassRows(rows.filter(r=>problem(r.status)),'Dedupe/thin pass');
+gapSelBtn.onclick=()=>runPassRows(selectedRows(),'Gap-fill pass');gapNextBtn.onclick=()=>runNextPass('Gap-fill pass');gapAllBtn.onclick=()=>runPassRows(rows.filter(r=>problem(r.status)),'Gap-fill pass');
+moreBtn.onclick=()=>{visible+=RENDER;render()};previewBtn.onclick=()=>out.value=JSON.stringify(saved,null,2);downloadBtn.onclick=download;clearBtn.onclick=()=>logEl.textContent='';
+function routeKeyForAuto(row){
+  return `${row.index}:${String(row.route&&row.route.from||'').trim()}→${String(row.route&&row.route.to||'').trim()}`;
+}
+
+function isAutoBlocked(row, skippedSet){
+  if(!row)return true;
+  const key=routeKeyForAuto(row);
+  if(skippedSet&&skippedSet.has(key))return true;
+  if(row.status==='suspicious')return true;
+  if(row.route&&row.route.cleaner&&row.route.cleaner.autoBlocked)return true;
+  return false;
+}
+
+function chooseBestPass(row){
+  if(row.route&&row.route.cleaner&&row.route.cleaner.autoBlocked){
+    return{pass:null,reason:row.route.cleaner.autoBlockedReason||'route is blocked for this auto run'};
+  }
+  if(row.route&&row.route.cleaner&&row.route.cleaner.lastNoProgressPass==='Gap-fill pass'&&row.status==='suspicious'){
+    row.route.cleaner.autoBlocked=true;
+    row.route.cleaner.autoBlockedReason='last gap-fill pass made no useful progress; skipping until settings change or route is regenerated';
+    return{pass:null,reason:row.route.cleaner.autoBlockedReason};
+  }
+
+  const pts=norm(row.route.points);
+  if(pts.length<2)return null;
+
+  // Fast checks first.
+  const fan=scoreFan(pts);
+  const cheapFan=cheapFanCombScore(pts);
+  const sig=routeGeometrySignature(pts);
+  const fanAlreadyChecked=row.route.cleaner&&row.route.cleaner.fanCheckedSignature===sig;
+  const likelyWorthDezigzag=!fanAlreadyChecked&&(cheapFan.possible||fan.needsCleanup&&(fan.backtrackEvents>=1||fan.diagonalJumps>=8||fan.ratio>2.0));
+
+  // Only run the expensive comb/fan preview on the current auto route, never during Scan routes.
+  if(likelyWorthDezigzag){
+    const dz=dezigzagRoute(pts,true);
+    const beforeGap=maxRouteGapMetres(pts);
+    const dzGap=dz&&dz.length>=2?maxRouteGapMetres(dz):beforeGap;
+    const dezigzagWouldRemove=dz&&dz.length>=2&&dz.length<pts.length&&dezigzagGapIsAcceptable(pts,dz);
+    if(dezigzagWouldRemove)return{pass:'Dezigzag pass',reason:`dezigzag/fan cleanup would remove ${pts.length-dz.length} point(s); no new gap over 1 km`};
+  }
+
+  const thinned=thin(pts,spacingM());
+  const thinWouldRemove=thinned&&thinned.length<pts.length&&maxRouteGapMetres(thinned)<=Math.max(maxRouteGapMetres(pts),gapM());
+  if(thinWouldRemove)return{pass:'Dedupe/thin pass',reason:`dedupe/thin would remove ${pts.length-thinned.length} point(s)`};
+
+  const gaps=findGaps(pts,gapM());
+  if(gaps.length)return{pass:'Gap-fill pass',reason:`${gaps.length} gap(s) over ${gapM()} m; longest ${Math.round(Math.max(...gaps.map(g=>g.distanceMetres)))} m`};
+
+  const d=pathDist(pts);
+  const meta=metaRatio(row.route,d);
+  if(meta!==null&&meta>ratioMax())return{pass:null,reason:`distance ratio ${meta.toFixed(1)}× is above max ${ratioMax()}×; needs manual review or regeneration`};
+
+  const a=audit(row.route);
+  if(a.status!=='good'){
+    return{pass:null,reason:`problem status has no runnable pass under current settings. Audit: ${a.message}`};
+  }
+
+  return null;
+}
+
+async function autoCleanNext(){return autoCleanQueue()}
+
+
+function setAutoButtonLabel(){
+  if(autoNextBtn)autoNextBtn.textContent=autoRunning?'Stop auto clean':'Auto clean queue';
+}
+
+async function toggleAutoCleanQueue(){
+  if(autoRunning){
+    autoStopRequested=true;
+    log('Auto clean queue stop requested. It will stop after the current pass finishes.');
+    setAutoButtonLabel();
+    return;
+  }
+  await autoCleanQueue();
+}
+
+async function autoCleanQueue(){
+  autoRunning=true;
+  autoStopRequested=false;
+  setAutoButtonLabel();
+  busy(true);
+  autoNextBtn.disabled=false;
+
+  try{
+    let routeCounter=0;
+    const skippedThisRun=new Set();
+
+    while(!autoStopRequested){
+      const row=rows.find(r=>problem(r.status)&&!isAutoBlocked(r,skippedThisRun));
+
+      if(!row){
+        log('Auto clean queue finished: no runnable problem routes left. Suspicious/blocked routes were skipped.');
+        break;
+      }
+
+      routeCounter++;
+      const routeStartedAt=Date.now();
+      let routePasses=0;
+      const currentKey=routeKeyForAuto(row);
+
+      log(`Auto route ${routeCounter}: starting ${row.route.from} → ${row.route.to}. Max 5 minutes on this route.`);
+
+      while(!autoStopRequested && problem(row.status)){
+        const elapsed=Date.now()-routeStartedAt;
+
+        if(elapsed>=5*60*1000){
+          row.status='suspicious';
+          row.route.cleaner=row.route.cleaner||{};
+          row.route.cleaner.autoBlocked=true;
+          row.route.cleaner.autoBlockedReason='auto clean spent 5 minutes on this route';
+          skippedThisRun.add(currentKey);
+          row.message=`Auto clean spent 5 minutes on this route and moved on. Last message: ${row.message||''}`;
+          log(`Auto route timeout: ${row.route.from} → ${row.route.to} hit 5 minutes. Moving on.`);
+          render();
+          stats();
+          break;
+        }
+
+        const choice=chooseBestPass(row);
+
+        if(choice&&choice.pass){
+          routePasses++;
+          log(`Auto clean chose ${choice.pass} for ${row.route.from} → ${row.route.to}: ${choice.reason}. Route time ${Math.round(elapsed/1000)}s/300s.`);
+          await runPassRows([row],choice.pass);
+          await wait(250);
+          continue;
+        }
+
+        if(choice&&!choice.pass){
+          log(`Auto clean skipped ${row.route.from} → ${row.route.to}: ${choice.reason}.`);
+          row.status='suspicious';
+          row.route.cleaner=row.route.cleaner||{};
+          row.route.cleaner.autoBlocked=true;
+          row.route.cleaner.autoBlockedReason=choice.reason;
+          skippedThisRun.add(currentKey);
+          row.message=choice.reason;
+          render();
+          stats();
+          break;
+        }
+
+        const a=audit(row.route);
+        applyAudit(row,a);
+
+        if(a.status==='good'){
+          row.status='cleaned';
+          row.message=`Already clean for current settings. ${a.message}`;
+          log(`Auto route complete: ${row.route.from} → ${row.route.to} is clean for current settings after ${routePasses} pass(es).`);
+          render();
+          stats();
+          break;
+        }
+
+        row.status='suspicious';
+        row.route.cleaner=row.route.cleaner||{};
+        row.route.cleaner.autoBlocked=true;
+        row.route.cleaner.autoBlockedReason=`no runnable cleanup pass found: ${a.message}`;
+        skippedThisRun.add(currentKey);
+        row.message=`No runnable cleanup pass found under current settings. ${a.message}`;
+        log(`Auto clean found no runnable pass for ${row.route.from} → ${row.route.to}. Audit says: ${a.message}`);
+        render();
+        stats();
+        break;
+      }
+
+      await wait(350);
+    }
+  }finally{
+    autoRunning=false;
+    autoStopRequested=false;
+    setAutoButtonLabel();
+    busy(false);
+    buttons();
+    render();
+  }
+}
+
+async function autoCleanNext(){return autoCleanQueue()}
+
+function runNextPass(passName){const r=rows.find(x=>problem(x.status)); if(r) runPassRows([r],passName); else log('No problem route found.')}
+
+async function load(e){const f=e.target.files&&e.target.files[0]; if(!f)return; try{saved=normaliseFile(JSON.parse(await f.text()));rows=saved.routes.map((route,index)=>makeRow(route,index));visible=RENDER;cleaned=0;out.value='';log(`Loaded ${rows.length} routes from ${f.name}.`);scanBtn.disabled=false;buttons();render()}catch(err){log(`Could not load file: ${err.message||err}`)}}
+function normaliseFile(p){if(Array.isArray(p))return{routes:p}; if(p&&Array.isArray(p.routes))return p; if(p&&typeof p==='object')return{routes:Object.values(p).filter(r=>r&&Array.isArray(r.points))}; return{routes:[]}}
+function makeRow(route,index){const pts=norm(route.points),d=pathDist(pts);return{index,route,status:'unscanned',issues:[],message:'',pointCount:pts.length,distanceMetres:d,gapCount:0,longestGapMetres:0}}
+function scan(){for(const r of rows)applyAudit(r,audit(r.route));log(`Scanned ${rows.length} routes.`);render();buttons()}
+const DEZIGZAG_MAX_NEW_GAP_METRES = 1000;
+
+function countGapsOverLimit(pts,limit){
+  return findGaps(pts,limit).length;
+}
+
+function dezigzagGapIsAcceptable(beforePts,afterPts){
+  // Allow dezigzag/fan cleanup only if it does not create any extra gap over 1 km.
+  // Existing large gaps are allowed to remain; the dezigzag pass just must not add new ones.
+  const beforeLarge=countGapsOverLimit(beforePts,DEZIGZAG_MAX_NEW_GAP_METRES);
+  const afterLarge=countGapsOverLimit(afterPts,DEZIGZAG_MAX_NEW_GAP_METRES);
+  return afterLarge<=beforeLarge;
+}
+
+function routeGeometrySignature(pts){
+  if(!pts||!pts.length)return 'empty';
+  const first=pts[0],last=pts[pts.length-1],mid=pts[Math.floor(pts.length/2)];
+  return `${pts.length}:${first[0].toFixed(5)},${first[1].toFixed(5)}:${mid[0].toFixed(5)},${mid[1].toFixed(5)}:${last[0].toFixed(5)},${last[1].toFixed(5)}:${Math.round(pathDist(pts))}:${Math.round(maxRouteGapMetres(pts))}`;
+}
+
+function cheapFanCombScore(pts){
+  if(!pts||pts.length<8)return{possible:false,score:0,reversals:0,sideExcursions:0,sharpTurns:0};
+
+  let reversals=0,sideExcursions=0,sharpTurns=0,score=0;
+  const stride=pts.length>6000?2:1;
+
+  for(let i=1;i<pts.length-2;i+=stride){
+    const a=pts[i-1],b=pts[i],c=pts[i+1],d=pts[i+2];
+    const ab=dist(a,b),bc=dist(b,c),cd=dist(c,d);
+    if(ab<25||bc<25)continue;
+
+    const bridge=dist(a,c);
+    const saving=ab+bc-bridge;
+    const off=distToSeg(b,a,c);
+    const turn=angDiff(bearing(a,b),bearing(b,c));
+
+    if(turn>130&&saving>80&&off>60){
+      sharpTurns++;
+      score+=3;
+    }
+
+    if(off>120&&saving>100&&bridge<DEZIGZAG_MAX_NEW_GAP_METRES){
+      sideExcursions++;
+      score+=4;
+    }
+
+    if(cd>25){
+      const p1=proj(b,a,d),p2=proj(c,a,d);
+      if((p1-p2)*dist(a,d)>120){
+        reversals++;
+        score+=5;
+      }
+    }
+  }
+
+  const possible=score>=6||sideExcursions>=1||reversals>=1||sharpTurns>=3;
+  return{possible,score,reversals,sideExcursions,sharpTurns};
+}
+
+function audit(route){const pts=norm(route.points),d=pathDist(pts),gaps=findGaps(pts,gapM()),fan=scoreFan(pts),cheapFan=cheapFanCombScore(pts),meta=metaRatio(route,d),dense=countDense(pts,spacingM()),issues=[];const sig=routeGeometrySignature(pts);const fanAlreadyChecked=route.cleaner&&route.cleaner.fanCheckedSignature===sig;const likelyZigzag=(cheapFan.possible||fan.needsCleanup&&(fan.backtrackEvents>=2||fan.diagonalJumps>=10||fan.ratio>2.2))&&!fanAlreadyChecked;const denseIssue=dense>0;if(pts.length<2)issues.push('invalid');if(gaps.length)issues.push('gap');if(likelyZigzag)issues.push('zigzag');if(meta!==null&&meta>ratioMax())issues.push('distance');if(denseIssue)issues.push('dense');let status=issues.includes('invalid')?'failed':issues.length?'needs-clean':'good';let msg=[];if(gaps.length)msg.push(`${gaps.length} gap(s) over ${gapM()} m. Longest ${Math.round(Math.max(...gaps.map(g=>g.distanceMetres)))} m.`);if(likelyZigzag)msg.push(`Possible fan/zigzag detected by fast scan: score ${cheapFan.score}, ${cheapFan.sideExcursions} side excursions, ${cheapFan.reversals} reversals. Run Dezigzag/fan pass to confirm/fix.`);else if(fanAlreadyChecked)msg.push('Fan/zigzag checked for this exact geometry; no removable fan found.');else if(fan.needsCleanup)msg.push(`Zigzag diagnostics only: ${fan.backtrackEvents||0} backtracks, ${fan.diagonalJumps||0} diagonal jumps, ratio ${fan.ratio.toFixed(1)}×.`);if(meta!==null&&meta>ratioMax())msg.push(`Travelled distance ${meta.toFixed(1)}× saved distance metadata.`);if(denseIssue)msg.push(`${dense} dense point(s) under ${spacingM()} m spacing may need removing.`);if(!msg.length)msg.push('Looks usable.');return{status,issues,message:msg.join(' '),pointCount:pts.length,distanceMetres:d,gapCount:gaps.length,longestGapMetres:gaps.length?Math.max(...gaps.map(g=>g.distanceMetres)):0}}
+function applyAudit(row,a){Object.assign(row,a)}
+async function runPassRows(list,passName){
+if(!list.length){log('Select one or more routes first.');return}
+busy(true);out.value='';
+try{
+  for(let i=0;i<list.length;i++){
+    const row=list[i];
+    log(`${passName} ${i+1}/${list.length}: ${row.route.from} → ${row.route.to}`);
+    let res;
+    if(passName==='Dezigzag pass')res=runDezigzagPass(row.route);
+    else if(passName==='Dedupe/thin pass')res=runDedupePass(row.route);
+    else if(passName==='Gap-fill pass')res=await runGapFillPass(row.route);
+    else throw new Error(`Unknown pass: ${passName}`);
+
+    row.route.points=res.points;
+    row.route.distanceMetres=Math.round(pathDist(res.points));
+    row.route.cleanedAt=new Date().toISOString();
+    row.route.cleaner={version:'rail-route-cleaner-v4-separate-passes',lastPass:passName,filledGapCount:res.filledGapCount||0,failedGapCount:res.failedGapCount||0,removedDensePoints:res.removedDensePoints||0,fanCleaned:!!res.fanCleaned};
+    saved.routes[row.index]=row.route;
+
+    const a=audit(row.route);
+    applyAudit(row,a);
+
+    const madeUsefulProgress=!!((res.filledGapCount||0)||(res.fanCleaned||false)||(res.removedDensePoints||0));
+    row.route.cleaner.noProgressCount = madeUsefulProgress ? 0 : ((row.route.cleaner.noProgressCount||0)+1);
+    row.route.cleaner.lastNoProgressPass = madeUsefulProgress ? '' : passName;
+
+    if(a.status==='good'){
+      row.status='cleaned';
+      row.message=`${passName} complete. ${a.message}`;
+    }else if(madeUsefulProgress){
+      row.status='partial';
+      row.message=`${passName} made changes. ${a.message}`;
+    }else if(passName==='Gap-fill pass'){
+      row.status='suspicious';
+      row.route.cleaner.autoBlocked=true;
+      row.route.cleaner.autoBlockedReason=`${passName} made no useful progress`;
+      row.message=`${passName} made no useful progress. ${a.message} Try a lower threshold, a higher max query size, or regenerate this route.`;
+    }else{
+      row.status=a.status;
+      row.message=`${passName} made no changes. ${a.message}`;
+    }
+
+    cleaned++;
+    render();
+    stats();
+    await wait(250);
+  }
+}finally{
+  busy(false);
+  render();
+  buttons();
+}
+}
+
+async function cleanRows(list){return runPassRows(list,'Gap-fill pass')}
+
+function runDezigzagPass(route){
+let pts=dedupe(norm(route.points),2);
+const before=pts.length;
+const beforeDist=pathDist(pts);
+const beforeMaxGap=maxRouteGapMetres(pts);
+log(`Start dezigzag/combfan: ${before} points, ${fmt(beforeDist)} routed, longest gap ${Math.round(beforeMaxGap)} m.`);
+
+const dezigzagged=dezigzagRoute(pts);
+let fanCleaned=false;
+
+if(dezigzagged&&dezigzagged.length>=2&&dezigzagged.length<pts.length){
+  const candidateMaxGap=maxRouteGapMetres(dezigzagged);
+  if(!dezigzagGapIsAcceptable(norm(route.points),dezigzagged)){
+    const beforeLarge=countGapsOverLimit(norm(route.points),DEZIGZAG_MAX_NEW_GAP_METRES);
+    const afterLarge=countGapsOverLimit(dezigzagged,DEZIGZAG_MAX_NEW_GAP_METRES);
+    log(`Dezigzag rejected: it would create a new gap over 1 km. Gaps over 1 km would change from ${beforeLarge} to ${afterLarge}.`);
+  }else{
+    pts=dezigzagged;
+    fanCleaned=true;
+    route.cleaner=route.cleaner||{};
+    delete route.cleaner.fanCheckedSignature;
+    log(`Dezigzag/combfan result: ${before} points → ${pts.length} points.`);
+  }
+}else{
+  route.cleaner=route.cleaner||{};
+  route.cleaner.fanCheckedSignature=routeGeometrySignature(pts);
+  log('Dezigzag/combfan result: no obvious spike/backtrack or comb/fan points removed. Marked this exact geometry as fan-checked.');
+}
+
+const afterDist=pathDist(pts);
+const afterMaxGap=maxRouteGapMetres(pts);
+log(`Dezigzag/combfan summary: removed ${before-pts.length} point(s), final ${pts.length} points, ${fmt(afterDist)} routed, longest gap ${Math.round(afterMaxGap)} m.`);
+
+return{points:pts,filledGapCount:0,failedGapCount:0,removedDensePoints:before-pts.length,fanCleaned}
+}
+
+function runDedupePass(route){
+let pts=dedupe(norm(route.points),2);
+const before=pts.length;
+const beforeDist=pathDist(pts);
+const beforeMaxGap=maxRouteGapMetres(pts);
+log(`Start dedupe/thin: ${before} points, ${fmt(beforeDist)} routed, longest gap ${Math.round(beforeMaxGap)} m, spacing target ${spacingM()} m.`);
+
+const thinned=thin(pts,spacingM());
+let skipped=false;
+
+if(maxRouteGapMetres(thinned)<=Math.max(beforeMaxGap,gapM())){
+  pts=dedupe(thinned,2);
+}else{
+  skipped=true;
+  log(`Dedupe/thin skipped: it would increase longest gap from ${Math.round(beforeMaxGap)} m to ${Math.round(maxRouteGapMetres(thinned))} m.`);
+}
+
+const removed=before-pts.length;
+if(!skipped){
+  if(removed>0)log(`Dedupe/thin result: removed ${removed} point(s).`);
+  else log('Dedupe/thin result: no dense points removed.');
+}
+
+const afterDist=pathDist(pts);
+const afterMaxGap=maxRouteGapMetres(pts);
+log(`Dedupe/thin summary: removed ${removed} point(s), final ${pts.length} points, ${fmt(afterDist)} routed, longest gap ${Math.round(afterMaxGap)} m.`);
+
+return{points:pts,filledGapCount:0,failedGapCount:0,removedDensePoints:removed,fanCleaned:false}
+}
+
+async function runGapFillPass(route){
+let pts=dedupe(norm(route.points),2);
+const originalPointCount=pts.length;
+const originalMaxGap=maxRouteGapMetres(pts);
+const originalDistance=pathDist(pts);
+log(`Start gap-fill: ${originalPointCount} points, ${fmt(originalDistance)} routed, longest gap ${Math.round(originalMaxGap)} m, threshold ${gapM()} m.`);
+
+const allGaps=findGaps(pts,gapM());
+const gaps=allGaps.slice(0,MAX_GAP_QUERIES);
+const repl=new Map();
+let filled=0,failed=0,skippedTooLarge=0;
+
+if(allGaps.length===0){
+  log(`Gap scan: 0 gaps over ${gapM()} m.`);
+}else{
+  const longest=Math.max(...allGaps.map(g=>g.distanceMetres));
+  log(`Gap scan: ${allGaps.length} gap(s) over ${gapM()} m. Longest ${Math.round(longest)} m. Querying up to ${gaps.length}.`);
+}
+
+for(let i=0;i<gaps.length;i++){
+  const g=gaps[i];
+
+  if(g.distanceMetres>maxGapM()){
+    log(`Skipping gap ${i+1}/${gaps.length}: ${fmt(g.distanceMetres)} is above max query size ${fmt(maxGapM())}.`);
+    failed++;
+    skippedTooLarge++;
+    continue;
+  }
+
+  log(`Filling gap ${i+1}/${gaps.length}: ${fmt(g.distanceMetres)} between point ${g.index-1} and ${g.index}.`);
+  const seg=await fetchGap(g.from,g.to);
+
+  if(seg&&seg.length>=2){
+    repl.set(g.index,seg);
+    filled++;
+    log(`Gap ${i+1}/${gaps.length} filled with ${seg.length} OSM rail points.`);
+  }else{
+    failed++;
+    log(`Gap ${i+1}/${gaps.length} failed: no usable OSM geometry returned.`);
+  }
+
+  await wait(BETWEEN);
+}
+
+if(repl.size){
+  pts=stitch(pts,repl);
+  log(`Stitched ${repl.size} gap replacement(s) into route.`);
+}
+
+const beforeFinalDedupe=pts.length;
+pts=dedupe(pts,2);
+const removed=beforeFinalDedupe-pts.length;
+
+const remainingGaps=findGaps(pts,gapM());
+const finalMaxGap=maxRouteGapMetres(pts);
+const finalDistance=pathDist(pts);
+
+if(remainingGaps.length){
+  log(`Gap-fill result: PARTIAL. ${remainingGaps.length} gap(s) still over ${gapM()} m. Longest ${Math.round(Math.max(...remainingGaps.map(g=>g.distanceMetres)))} m.`);
+}else{
+  log('Gap-fill result: no remaining gaps over selected threshold.');
+}
+
+log(`Gap-fill summary: filled ${filled}, failed ${failed}, skipped-too-large ${skippedTooLarge}, removed ${removed} duplicate point(s), final ${pts.length} points, ${fmt(finalDistance)} routed, longest gap ${Math.round(finalMaxGap)} m.`);
+
+return{points:pts,filledGapCount:filled,failedGapCount:failed,removedDensePoints:removed,fanCleaned:false}
+}
+async function fetchGap(start,end){const query=overpassQuery(start,end);for(const url of await availableServers()){try{const c=new AbortController();const t=setTimeout(()=>c.abort(),TIMEOUT);const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},body:query,signal:c.signal});clearTimeout(t);if(r.status===429){cooldown.set(url,Date.now()+SERVER_COOLDOWN);log(`Overpass rate limit on ${short(url)}. Cooling down.`);await wait(RATE_WAIT);continue}if([502,503,504].includes(r.status)){log(`Overpass busy on ${short(url)} (${r.status}). Trying another server.`);await wait(2500);continue}if(!r.ok)throw new Error(`Overpass ${r.status}`);const pts=extractRail(await r.json(),start,end);if(pts.length>=2)return pts}catch(e){log(`Overpass failed on ${short(url)}: ${e.message||e}`);await wait(1500)}}return null}
+function overpassQuery(start,end){const b=bbox(start,end);return `[out:json][timeout:35];\n(\n  way["railway"~"^(rail|subway|light_rail|tram|narrow_gauge)$"]["service"!~"^(yard|siding|spur|crossover)$"](${b.s.toFixed(6)},${b.w.toFixed(6)},${b.n.toFixed(6)},${b.e.toFixed(6)});\n);\nout geom;`}
+function bbox(start,end){const d=dist(start,end),buf=Math.min(2200,Math.max(400,d*.10)),mid=(start[0]+end[0])/2,lat=buf/111320,lng=buf/(111320*Math.max(.2,Math.cos(rad(mid))));return{s:Math.min(start[0],end[0])-lat,n:Math.max(start[0],end[0])+lat,w:Math.min(start[1],end[1])-lng,e:Math.max(start[1],end[1])+lng}}
+function extractRail(data,start,end){const elements=Array.isArray(data.elements)?data.elements:[],cand=[],width=Math.min(1800,Math.max(250,dist(start,end)*.08));for(const el of elements){if(!Array.isArray(el.geometry))continue;for(const gp of el.geometry){const p=[Number(gp.lat),Number(gp.lon)];if(!Number.isFinite(p[0])||!Number.isFinite(p[1]))continue;const pr=proj(p,start,end),di=distToSeg(p,start,end);if(pr>=-.1&&pr<=1.1&&di<=width)cand.push({point:p,projection:pr,distance:di})}}if(cand.length<2)return[];cand.sort((a,b)=>Math.abs(a.projection-b.projection)>.002?a.projection-b.projection:a.distance-b.distance);const raw=cand.map(c=>c.point);const cleaned=cleanSegmentFan(raw,start,end,[start,end]);const chosen=cleaned&&cleaned.length>=2?cleaned:raw;if(!chosen||chosen.length<2)return[];if(dist(start,chosen[0])>width*2.2||dist(end,chosen[chosen.length-1])>width*2.2)return[];const originalGap=dist(start,end),chosenGap=maxRouteGapMetres(chosen),rawGap=maxRouteGapMetres(raw);if(chosenGap>=originalGap*.95){log(`Rejected OSM segment: it did not improve the gap. Original ${Math.round(originalGap)} m, candidate internal gap ${Math.round(chosenGap)} m.`);return[]}if(chosenGap>gapM()&&chosenGap>=originalGap*.75){log(`Rejected OSM segment: internal gap still too large. Original ${Math.round(originalGap)} m, candidate internal gap ${Math.round(chosenGap)} m, current threshold ${gapM()} m.`);return[]}log(`OSM candidate segment accepted: ${chosen.length} point(s), longest internal gap ${Math.round(chosenGap)} m. Original gap was ${Math.round(originalGap)} m.`);return chosen}
+function stitch(pts,repl){const out=[];for(let i=0;i<pts.length;i++){if(i===0){out.push(pts[i]);continue}append(out,repl.has(i)?repl.get(i):[pts[i]])}return out}
+function cleanWholeFan(pts){return pts}
+function removeCombFanExcursions(pts,quiet=false){
+  if(!pts||pts.length<12)return pts;
+
+  const maxBridge=DEZIGZAG_MAX_NEW_GAP_METRES;
+  const minSaving=140;
+  const minOffLine=90;
+
+  let current=pts;
+  let totalRemoved=0;
+
+  // Run a few passes because removing one fan often exposes the next one.
+  for(let pass=0;pass<(current.length>3000?2:4);pass++){
+    let changed=false;
+    const out=[];
+    let i=0;
+
+    while(i<current.length){
+      let best=null;
+
+      // Look ahead for a short-to-medium excursion that can be bridged cleanly.
+      // This targets rail "comb" artefacts where the route repeatedly jumps away
+      // from the forward corridor and back again.
+      for(let j=Math.min(current.length-1,i+(current.length>3000?14:24));j>=i+3;j--){
+        const start=current[i],end=current[j];
+        const bridge=dist(start,end);
+        if(bridge<50||bridge>maxBridge)continue;
+
+        let path=0,maxOff=0,backtracks=0,zigTurns=0,lastProj=null,lastBearing=null;
+
+        for(let k=i+1;k<=j;k++){
+          path+=dist(current[k-1],current[k]);
+          const p=current[k];
+          maxOff=Math.max(maxOff,distToSeg(p,start,end));
+
+          const pr=proj(p,start,end);
+          if(lastProj!==null&&((lastProj-pr)*bridge)>Math.max(80,gapM()*0.5))backtracks++;
+          lastProj=Math.max(lastProj??pr,pr);
+
+          const b=bearing(current[k-1],current[k]);
+          if(lastBearing!==null&&angDiff(lastBearing,b)>135)zigTurns++;
+          lastBearing=b;
+        }
+
+        const saving=path-bridge;
+        const ratio=path/Math.max(1,bridge);
+        const looksLikeComb=(saving>minSaving&&maxOff>minOffLine&&(backtracks>=1||zigTurns>=1||ratio>1.45));
+
+        if(looksLikeComb){
+          const removed=j-i-1;
+          const score=saving+(maxOff*0.7)+(backtracks*500)+(zigTurns*120);
+          if(!best||score>best.score)best={j,removed,bridge,path,saving,maxOff,score};
+        }
+      }
+
+      if(best&&best.removed>0){
+        out.push(current[i]);
+        out.push(current[best.j]);
+        totalRemoved+=best.removed;
+        changed=true;
+        i=best.j+1;
+      }else{
+        out.push(current[i]);
+        i++;
+      }
+    }
+
+    current=dedupe(out,2);
+    if(!changed)break;
+  }
+
+  if(totalRemoved>0&&!quiet)log(`Removed ${totalRemoved} comb/fan zigzag point(s).`);
+  return current;
+}
+
+function dezigzagRoute(pts,quiet=false){if(!pts||pts.length<5)return pts;pts=removeCombFanExcursions(pts,quiet);const maxBridge=Math.max(maxGapM(),gapM()*3);const out=[pts[0]];let removed=0;for(let i=1;i<pts.length-1;i++){const prev=out[out.length-1],cur=pts[i],next=pts[i+1];const a=dist(prev,cur),b=dist(cur,next),bridge=dist(prev,next);if(a<2)continue;const saving=a+b-bridge;const bearingIn=bearing(prev,cur),bearingOut=bearing(cur,next),turn=angDiff(bearingIn,bearingOut);const curOffLine=distToSeg(cur,prev,next);const backwards=progressBackwards(prev,cur,next);const obviousSpike=turn>150&&saving>150&&curOffLine>120&&bridge<=maxBridge;const sidewaysSpike=curOffLine>500&&saving>300&&bridge<=maxBridge;const tinyLoop=backwards&&saving>150&&bridge<=maxBridge;if(obviousSpike||sidewaysSpike||tinyLoop){removed++;continue}out.push(cur)}out.push(pts[pts.length-1]);if(removed>0&&!quiet)log(`Removed ${removed} obvious spike/backtrack point(s).`);return out}
+function cleanSegmentFan(pts,start,end,anchor=[start,end]){if(!pts||pts.length<4)return pts;const length=dist(start,end);if(length<250)return pts;const ann=pts.map((p,i)=>{const pr=proj(p,start,end);return{point:p,i,projection:pr,distanceToAnchor:distToPolyline(p,anchor),distanceToDirect:distToSeg(p,start,end),bin:Math.round((pr*length)/FAN_BIN)}}).filter(c=>c.projection>=-.08&&c.projection<=1.08);if(ann.length<2)return pts;const bins=new Map();for(const c of ann){const ex=bins.get(c.bin);if(!ex||candScore(c)<candScore(ex))bins.set(c.bin,c)}const selected=Array.from(bins.values()).sort((a,b)=>a.projection-b.projection),clean=[];for(const c of selected){const prev=clean[clean.length-1];if(!prev){clean.push(c);continue}const back=Math.max(0,(prev.projection-c.projection)*length);if(back>BACKTRACK)continue;const jump=dist(prev.point,c.point),expected=Math.max(1,(c.projection-prev.projection)*length),side=Math.max(0,jump-expected);if(side>SIDEWAYS)continue;clean.push(c)}if(clean.length<2)return pts;let res=clean.map(c=>c.point);if(dist(start,res[0])>250)res.unshift(start);if(dist(end,res[res.length-1])>250)res.push(end);return res}
+function candScore(c){return c.distanceToAnchor*3+c.distanceToDirect*.4+Math.abs(c.projection-Math.round(c.projection*100)/100)*20}
+function anchorCorridor(pts){const a=[pts[0]];let since=0;for(let i=1;i<pts.length-1;i++){since+=dist(pts[i-1],pts[i]);if(since>=2000){a.push(pts[i]);since=0}}a.push(pts[pts.length-1]);return a}
+function scoreFan(pts){if(!pts||pts.length<8)return{needsCleanup:false,score:0,ratio:1,backtrackEvents:0,diagonalJumps:0,sharpTurnEvents:0};const start=pts[0],end=pts[pts.length-1],direct=dist(start,end);if(direct<300)return{needsCleanup:false,score:0,ratio:1,backtrackEvents:0,diagonalJumps:0,sharpTurnEvents:0};const path=pathDist(pts),ratio=path/direct;let back=0,diag=0,sharp=0,prevProj=null,prevBear=null,axis=bearing(start,end);for(let i=1;i<pts.length;i++){const prev=pts[i-1],cur=pts[i],len=dist(prev,cur);if(len<80)continue;const pr=proj(cur,start,end);if(prevProj!==null){const backwards=(prevProj-pr)*direct;if(backwards>BACKTRACK)back++}prevProj=Math.max(prevProj??pr,pr);const b=bearing(prev,cur),ang=angDiff(b,axis);if(len>250&&ang>40&&ang<140)diag++;if(prevBear!==null&&angDiff(prevBear,b)>145&&len>250)sharp++;prevBear=b}const score=back*8+diag*5+sharp*2+Math.max(0,ratio-2.2)*8;const needsCleanup=back>=4||diag>=8||(sharp>=8&&ratio>1.8)||ratio>2.6;return{needsCleanup,score,ratio,backtrackEvents:back,diagonalJumps:diag,sharpTurnEvents:sharp}}
+function maxRouteGapMetres(pts){let m=0;if(!Array.isArray(pts))return 0;for(let i=1;i<pts.length;i++)m=Math.max(m,dist(pts[i-1],pts[i]));return m}
+function findGaps(pts,threshold){const gaps=[];for(let i=1;i<pts.length;i++){const d=dist(pts[i-1],pts[i]);if(d>threshold)gaps.push({index:i,from:pts[i-1],to:pts[i],distanceMetres:d})}return gaps}
+function countDense(pts,min){let c=0;for(let i=1;i<pts.length-1;i++)if(dist(pts[i-1],pts[i])<min)c++;return c}
+function thin(pts,min){if(!pts||pts.length<=2)return pts;const out=[pts[0]];let last=pts[0];for(let i=1;i<pts.length-1;i++){if(dist(last,pts[i])>=min){out.push(pts[i]);last=pts[i]}}append(out,[pts[pts.length-1]]);return out}
+function metaRatio(route,calc){const saved=Number(route.distanceMetres);return Number.isFinite(saved)&&saved>0&&calc>0?calc/saved:null}
+async function availableServers(){const now=Date.now(),avail=OVERPASS_URLS.filter(u=>(cooldown.get(u)||0)<=now);if(avail.length)return avail;const earliest=Math.min(...OVERPASS_URLS.map(u=>cooldown.get(u)||0)),ms=Math.max(2000,earliest-now);log(`All Overpass servers cooling down. Waiting ${Math.ceil(ms/1000)}s.`);await wait(ms);return OVERPASS_URLS}
+function render(){body.innerHTML='';for(const row of rows.slice(0,visible)){const tr=document.createElement('tr');tr.className=row.status;tr.innerHTML=`<td><input class="route-checkbox" data-index="${row.index}" type="checkbox"></td><td><span class="pill ${escAttr(row.status)}">${esc(row.status)}</span></td><td><strong>${esc(row.route.from||'')} → ${esc(row.route.to||'')}</strong><br><span class="small">${esc(row.route.source||'')}</span></td><td>${row.pointCount}</td><td>${fmt(row.distanceMetres)}</td><td>${row.gapCount} gap(s)<br><span class="small">longest ${Math.round(row.longestGapMetres||0)} m</span></td><td class="message">${esc(row.message||'')}</td>`;body.appendChild(tr)}renderNote.textContent=rows.length?`Showing ${Math.min(visible,rows.length)} of ${rows.length} routes.`:'';moreBtn.disabled=visible>=rows.length;stats()}
+function stats(){const total=rows.length,good=rows.filter(r=>r.status==='good'||r.status==='cleaned').length,prob=rows.filter(r=>problem(r.status)).length,fail=rows.filter(r=>r.status==='failed'||r.status==='suspicious').length;$('#stTotal').textContent=total;$('#stGood').textContent=good;$('#stProb').textContent=prob;$('#stClean').textContent=cleaned;$('#stFail').textContent=fail}
+function buttons(){const has=rows.length>0,prob=rows.some(r=>problem(r.status));scanBtn.disabled=!has;autoNextBtn.disabled=autoRunning?false:!prob;dezigSelBtn.disabled=!has;dezigNextBtn.disabled=!prob;dezigAllBtn.disabled=!prob;dedupeSelBtn.disabled=!has;dedupeNextBtn.disabled=!prob;dedupeAllBtn.disabled=!prob;gapSelBtn.disabled=!has;gapNextBtn.disabled=!prob;gapAllBtn.disabled=!prob;previewBtn.disabled=!has;downloadBtn.disabled=!has}
+function busy(v){scanBtn.disabled=v;autoNextBtn.disabled=false;dezigSelBtn.disabled=v;dezigNextBtn.disabled=v;dezigAllBtn.disabled=v;dedupeSelBtn.disabled=v;dedupeNextBtn.disabled=v;dedupeAllBtn.disabled=v;gapSelBtn.disabled=v;gapNextBtn.disabled=v;gapAllBtn.disabled=v;previewBtn.disabled=v;downloadBtn.disabled=v}
+function selectedRows(){return Array.from(document.querySelectorAll('.route-checkbox:checked')).map(c=>Number(c.dataset.index)).map(i=>rows.find(r=>r.index===i)).filter(Boolean)}
+function problem(s){return['needs-clean','partial','failed','suspicious'].includes(s)}
+function download(){const blob=new Blob([JSON.stringify(saved,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='rail-routes.json';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(a.href)}
+function norm(points){if(!Array.isArray(points))return[];return points.map(p=>Array.isArray(p)?[Number(p[0]),Number(p[1])]:p&&typeof p==='object'?[Number(p.lat),Number(p.lng??p.lon)]:[NaN,NaN]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]))}
+function dedupe(pts,min){const out=[];for(const p of pts){const prev=out[out.length-1];if(!prev||dist(prev,p)>=min)out.push(p)}return out}
+function append(target,pts){for(const p of pts){const prev=target[target.length-1];if(!prev||dist(prev,p)>2)target.push(p)}}
+function pathDist(pts){let t=0;for(let i=1;i<pts.length;i++)t+=dist(pts[i-1],pts[i]);return t}
+function dist(a,b){const R=6371000,la1=rad(a[0]),la2=rad(b[0]),dLa=rad(b[0]-a[0]),dLo=rad(b[1]-a[1]),h=Math.sin(dLa/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+function distToPolyline(p,line){if(!line||line.length<2)return 0;let best=Infinity;for(let i=1;i<line.length;i++)best=Math.min(best,distToSeg(p,line[i-1],line[i]));return best}
+function distToSeg(p,start,end){const pr=Math.max(0,Math.min(1,proj(p,start,end))),e=project(end,start),pl=project(p,start),cx=e.x*pr,cy=e.y*pr,dx=pl.x-cx,dy=pl.y-cy;return Math.sqrt(dx*dx+dy*dy)}
+function proj(p,start,end){const pl=project(p,start),e=project(end,start),l=e.x*e.x+e.y*e.y;return l===0?0:(pl.x*e.x+pl.y*e.y)/l}
+function project(p,o){const mLat=111320,mLng=111320*Math.max(.2,Math.cos(rad(o[0])));return{x:(p[1]-o[1])*mLng,y:(p[0]-o[0])*mLat}}
+function bearing(a,b){const lat1=rad(a[0]),lat2=rad(b[0]),dl=rad(b[1]-a[1]),y=Math.sin(dl)*Math.cos(lat2),x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dl);return(Math.atan2(y,x)*180/Math.PI+360)%360}
+function angleDiff(a,b){const d=Math.abs(a-b)%360;return d>180?360-d:d}
+function angDiff(a,b){const d=Math.abs(a-b)%360;return d>180?360-d:d}
+function rad(d){return d*Math.PI/180}function gapM(){return Number($('#gap').value)||100}function spacingM(){return Number($('#spacing').value)||20}function progressBackwards(prev,cur,next){const total=dist(prev,next);if(total<1)return false;const p=proj(cur,prev,next);return p<-0.05||p>1.05}
+function maxGapM(){return(Number($('#maxGap').value)||20)*1000}function ratioMax(){return Number($('#ratio').value)||2.4}function fmt(m){return Number.isFinite(m)?m>=1000?`${(m/1000).toFixed(1)} km`:`${Math.round(m)} m`:'—'}function short(url){try{return new URL(url).hostname}catch{return url}}function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;')}function escAttr(v){return esc(v).replaceAll('`','&#096;')}function log(m){logEl.textContent+=`${new Date().toLocaleTimeString()}  ${m}
+`;logEl.scrollTop=logEl.scrollHeight}function wait(ms){return new Promise(r=>setTimeout(r,ms))}
+</script>
+</body>
+</html>

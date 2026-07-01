@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>My Travel Map</title>
+
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>My Travel Map</h1>
+      <p>Visualising my journeys from a Google Sheet.</p>
+    </div>
+  </header>
+
+  <main class="app-layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Journeys</h2>
+
+        <div class="button-group">
+          <button id="export-locations-button" type="button">Export locations</button>
+          <button id="clear-cache-button" type="button">Clear browser cache</button>
+        </div>
+      </div>
+
+      <p id="status" class="hint">Loading journeys...</p>
+
+      <div class="legend" aria-label="Map legend">
+        <span><i class="legend-line train"></i>Train</span>
+        <span><i class="legend-line ferry"></i>Ferry</span>
+        <span><i class="legend-line bus"></i>Bus</span>
+        <span><i class="legend-line plane"></i>Plane</span>
+        <span><i class="legend-line hitchhike"></i>Hitchhike</span>
+        <span><i class="legend-line driven"></i>Driven</span>
+        <span><i class="legend-country visited"></i>Visited country</span>
+      </div>
+
+      <ul id="place-list" class="place-list"></ul>
+    </aside>
+
+    <section class="map-panel">
+      <div id="map"></div>
+    </section>
+  </main>
+
+  <dialog id="location-review-dialog" class="review-dialog">
+    <form method="dialog" id="location-review-form">
+      <h2 id="review-title">Check location</h2>
+      <p id="review-reason" class="hint"></p>
+      <p id="review-context" class="review-context"></p>
+
+      <div id="review-options" class="review-options"></div>
+
+      <label class="manual-entry">
+        Search for a better location:
+        <input id="manual-search-input" type="text" placeholder="e.g. Asch, Gelderland, Netherlands" />
+      </label>
+
+      <div class="dialog-buttons">
+        <button id="manual-search-button" type="button">Search this</button>
+        <button id="skip-location-button" type="button">Skip for now</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
