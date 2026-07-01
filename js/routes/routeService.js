@@ -98,7 +98,6 @@ async function loadSavedOrGeneratedRailRoute(journey, fromLocation, toLocation) 
 
   if (sharedRoute) {
     console.log(`Using shared rail route-cache.json route for ${journey.from} → ${journey.to}`);
-    setCachedRoute("rail", fromLocation, toLocation, sharedRoute);
     return sharedRoute;
   }
 
@@ -208,7 +207,6 @@ async function loadCachedOrFreshRoute(routeType, journey, fromLocation, toLocati
 
       if (sharedRoute) {
         console.log(`Using shared ${routeType} route-cache.json route for ${journey.from} → ${journey.to}`);
-        setCachedRoute(routeType, fromLocation, toLocation, sharedRoute);
         return sharedRoute;
       }
     }
