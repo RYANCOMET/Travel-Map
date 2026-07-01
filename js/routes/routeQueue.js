@@ -1,4 +1,5 @@
 const queue = [];
+const idleListeners = new Set();
 let activeJobs = 0;
 let completedJobs = 0;
 
@@ -21,6 +22,32 @@ export function enqueueRouteRequest(job) {
   });
 }
 
+export function isRouteQueueIdle() {
+  return queue.length === 0 && activeJobs === 0;
+}
+
+export function onRouteQueueIdle(callback) {
+  if (typeof callback !== "function") {
+    return () => {};
+  }
+
+  idleListeners.add(callback);
+
+  if (isRouteQueueIdle()) {
+    setTimeout(() => {
+      if (idleListeners.has(callback) && isRouteQueueIdle()) {
+        callback({
+          completedJobs
+        });
+      }
+    }, 0);
+  }
+
+  return () => {
+    idleListeners.delete(callback);
+  };
+}
+
 function runNextJobs() {
   while (activeJobs < MAX_CONCURRENT_ROUTE_REQUESTS && queue.length > 0) {
     const next = queue.shift();
@@ -40,8 +67,27 @@ function runNextJobs() {
         console.log(`Route finished. Waiting: ${queue.length}, active: ${activeJobs}, completed: ${completedJobs}`);
 
         runNextJobs();
+        notifyIdleIfNeeded();
       });
   }
+
+  notifyIdleIfNeeded();
+}
+
+function notifyIdleIfNeeded() {
+  if (!isRouteQueueIdle()) {
+    return;
+  }
+
+  idleListeners.forEach((listener) => {
+    try {
+      listener({
+        completedJobs
+      });
+    } catch (error) {
+      console.warn("Route queue idle listener failed.", error);
+    }
+  });
 }
 
 function wait(milliseconds) {
