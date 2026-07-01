@@ -1,6 +1,9 @@
 import { normalisePlaceKey } from "../utils.js";
 import { calculatePathDistanceMetres } from "./geoMath.js";
-import { saveRouteToRemoteCache } from "./remoteRouteSaver.js";
+import {
+  markRoutesAsActiveForSharedCache,
+  saveRouteToRemoteCache
+} from "./remoteRouteSaver.js";
 
 let sharedRouteCachePromise = null;
 let sharedRouteCache = null;
@@ -33,6 +36,20 @@ export async function getSharedRoute(routeType, journey, fromLocation, toLocatio
   }
 
   return null;
+}
+
+export function markJourneyRouteAsActiveInSharedCache(routeType, journey) {
+  if (!journey || !journey.from || !journey.to) {
+    return;
+  }
+
+  // Keep both directions alive because the shared cache can reuse reversed routes.
+  // This avoids deleting a useful saved route just because the spreadsheet currently
+  // contains the same journey in the opposite direction.
+  markRoutesAsActiveForSharedCache([
+    getSharedRouteKey(routeType, journey.from, journey.to),
+    getSharedRouteKey(routeType, journey.to, journey.from)
+  ]);
 }
 
 export function saveGeneratedRouteToSharedCache(routeType, journey, route) {

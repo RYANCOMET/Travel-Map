@@ -8,6 +8,7 @@ const MAX_SAVE_ATTEMPTS = 5;
 const MAX_PENDING_ROUTES = 500;
 
 const pendingSaves = new Map();
+const activeRouteKeys = new Set();
 
 let flushTimer = null;
 let flushRunning = false;
@@ -62,6 +63,24 @@ export function saveRouteToRemoteCache(cacheKey, route) {
 
 export function flushPendingRemoteRouteSaves() {
   return flushNow("manual flush");
+}
+
+export function markRouteAsActiveForSharedCache(cacheKey) {
+  const normalisedKey = String(cacheKey || "").trim();
+
+  if (!normalisedKey) {
+    return;
+  }
+
+  activeRouteKeys.add(normalisedKey);
+}
+
+export function markRoutesAsActiveForSharedCache(cacheKeys) {
+  if (!Array.isArray(cacheKeys)) {
+    return;
+  }
+
+  cacheKeys.forEach((cacheKey) => markRouteAsActiveForSharedCache(cacheKey));
 }
 
 export function getRouteSaveEndpoint() {
@@ -142,7 +161,10 @@ async function flushNow(reason) {
     });
 
     if (result && result.ok) {
-      console.log(`Saved ${batch.length} routes to shared GitHub cache in one commit.`);
+      console.log(
+        `Saved ${batch.length} routes to shared GitHub cache in one commit.` +
+        (result.deletedRouteCount ? ` Deleted ${result.deletedRouteCount} stale routes.` : "")
+      );
     }
 
     return result;
@@ -202,13 +224,16 @@ async function sendRouteBatch(batch) {
     routes[item.cacheKey] = item.route;
   });
 
+  const activeKeys = Array.from(activeRouteKeys);
+
   const response = await fetch(ROUTE_BATCH_SAVE_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      routes
+      routes,
+      activeRouteKeys: activeKeys
     })
   });
 

@@ -18,6 +18,7 @@ import { isFlightMethod, isTrainMethod } from "./routeMethods.js";
 import { enqueueRouteRequest } from "./routeQueue.js";
 import {
   getSharedRoute,
+  markJourneyRouteAsActiveInSharedCache,
   saveGeneratedRouteToSharedCache
 } from "./sharedRouteCache.js";
 
@@ -40,6 +41,8 @@ export async function loadDetailedRouteForJourney(journey, fromLocation, toLocat
   if (!routeType) {
     return null;
   }
+
+  markJourneyRouteAsActiveInSharedCache(routeType, journey);
 
   if (routeType === "rail") {
     return await loadSavedOrGeneratedRailRoute(journey, fromLocation, toLocation);
@@ -66,6 +69,8 @@ export async function regenerateDetailedRouteForJourney(journey, fromLocation, t
   if (!routeType) {
     return null;
   }
+
+  markJourneyRouteAsActiveInSharedCache(routeType, journey);
 
   if (routeType === "rail") {
     return await regenerateRailRoute(journey, fromLocation, toLocation);
