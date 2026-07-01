@@ -175,7 +175,7 @@ export function createMapView({ onFixLocation }) {
         return;
       }
 
-      context.message = "Route regenerated and saved in this browser.";
+      context.message = "Route regenerated, saved locally, and sent to the shared GitHub route cache.";
       applyDetailedRoute(context, regeneratedRoute);
       routeLayer.openPopup();
       fitMapToRoutes();

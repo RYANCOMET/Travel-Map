@@ -1,41 +1,83 @@
-# Travel Vis regenerate route button patch
+# Shared route cache + Cloudflare save endpoint patch
 
-Extract this zip over your existing `travel vis` project folder.
+This patch adds a shared `route-cache.json` for all generated route types:
 
-This patch adds a **Regenerate route** button to each route popup.
+- rail
+- road/car/taxi
+- bus/coach/minibus
+- hitch/hitchhiking
+- flight/plane
 
-## Files changed
+The browser now checks routes in this order:
 
-- `js/mapView.js`
-- `js/routes/routeService.js`
-- `js/routes/routeCache.js`
+1. manually regenerated local cache
+2. shared `route-cache.json`
+3. legacy `rail-routes.json` for rail routes
+4. local browser cache
+5. live generation
+6. POST generated route to the Cloudflare Worker so it can be committed back to GitHub
 
-The zip also includes the current browser-routing route modules so it can be applied on top of the previous browser routing patch safely.
+The Cloudflare Worker endpoint is currently set in:
 
-## Behaviour
+```js
+js/routes/remoteRouteSaver.js
+```
 
-When a route is clicked, its popup now includes **Regenerate route**.
+as:
 
-Clicking the button:
+```txt
+https://travel-map-route-cache.ryancomet.workers.dev/save-route
+```
 
-1. clears the local generated/failed cache for that route,
-2. re-runs the correct route generator,
-3. replaces the line on the map,
-4. saves the regenerated result in this browser.
+## Important
 
-For rail routes:
+If `route-cache.json` already contains routes in GitHub, do not replace it with the empty file in this patch. Merge the existing contents instead.
 
-- UK endpoint pair → browser-safe UK rail worker
-- Europe endpoint pair → Transitous
+For first setup, the included empty `route-cache.json` is correct:
 
-Manually regenerated rail routes are preferred over `rail-routes.json` on later page loads in the same browser, so a regenerated route actually sticks.
+```json
+{
+  "version": 1,
+  "updatedAt": null,
+  "routes": {}
+}
+```
 
-## Not changed
+## Cloudflare Worker variables
 
-This patch does not include or overwrite:
+Your Worker needs these normal variables:
 
-- `locations.json`
-- `place-aliases.json`
-- `rail-routes.json`
-- `index.html`
-- `styles.css`
+```txt
+GITHUB_OWNER = RYANCOMET
+GITHUB_REPO = Travel-Map
+GITHUB_BRANCH = main
+CACHE_PATH = route-cache.json
+ALLOWED_ORIGIN = https://ryancomet.github.io
+```
+
+And this secret:
+
+```txt
+GITHUB_TOKEN = your new GitHub fine-grained token
+```
+
+The token must have `Contents: Read and write` permission for `RYANCOMET/Travel-Map`.
+
+## Files changed/added
+
+```txt
+route-cache.json
+js/mapView.js
+js/routes/remoteRouteSaver.js
+js/routes/sharedRouteCache.js
+js/routes/routeService.js
+js/routes/routeCache.js
+js/routes/routeQueue.js
+js/routes/railRegion.js
+js/routes/transitousRoutes.js
+js/routes/ukRailBrowserRouter.js
+js/routes/ukRailWorker.js
+js/routes/ukRailWorkerClient.js
+```
+
+The rest of the files in `js/routes` are included so this can be extracted as a complete routing patch.

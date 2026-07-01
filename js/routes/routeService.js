@@ -1,4 +1,5 @@
 import { getGreatCirclePoints } from "./flightRoutes.js";
+import { calculatePathDistanceMetres } from "./geoMath.js";
 import { fetchRoadRoute } from "./roadRoutes.js";
 import { getSavedRailRoute } from "./railRouteStore.js";
 import { fetchTransitousRailRoute } from "./transitousRoutes.js";
@@ -13,8 +14,12 @@ import {
   setFailedRoute,
   setRegeneratedRoute
 } from "./routeCache.js";
-import { isDrivingMethod, isFlightMethod, isTrainMethod } from "./routeMethods.js";
+import { isFlightMethod, isTrainMethod } from "./routeMethods.js";
 import { enqueueRouteRequest } from "./routeQueue.js";
+import {
+  getSharedRoute,
+  saveGeneratedRouteToSharedCache
+} from "./sharedRouteCache.js";
 
 console.log("routeService.js loaded");
 
@@ -30,39 +35,52 @@ export function getInitialRouteLatLngs(journey, fromLocation, toLocation) {
 }
 
 export async function loadDetailedRouteForJourney(journey, fromLocation, toLocation) {
-  if (isDrivingMethod(journey.method)) {
-    return await loadCachedOrFreshRoute("road", journey, fromLocation, toLocation, () => {
-      return fetchRoadRoute(fromLocation, toLocation);
+  const routeType = getRouteTypeForJourney(journey);
+
+  if (!routeType) {
+    return null;
+  }
+
+  if (routeType === "rail") {
+    return await loadSavedOrGeneratedRailRoute(journey, fromLocation, toLocation);
+  }
+
+  if (routeType === "flight") {
+    return await loadCachedOrFreshRoute("flight", journey, fromLocation, toLocation, () => {
+      return buildFlightRoute(fromLocation, toLocation);
     });
   }
 
-  if (isTrainMethod(journey.method)) {
-    return await loadSavedOrGeneratedRailRoute(journey, fromLocation, toLocation);
+  if (routeType === "road" || routeType === "bus" || routeType === "hitch") {
+    return await loadCachedOrFreshRoute(routeType, journey, fromLocation, toLocation, () => {
+      return fetchRoadRoute(fromLocation, toLocation);
+    });
   }
 
   return null;
 }
 
 export async function regenerateDetailedRouteForJourney(journey, fromLocation, toLocation) {
-  if (isDrivingMethod(journey.method)) {
-    return await regenerateFreshRoute("road", journey, fromLocation, toLocation, () => {
-      return fetchRoadRoute(fromLocation, toLocation);
-    });
+  const routeType = getRouteTypeForJourney(journey);
+
+  if (!routeType) {
+    return null;
   }
 
-  if (isTrainMethod(journey.method)) {
+  if (routeType === "rail") {
     return await regenerateRailRoute(journey, fromLocation, toLocation);
   }
 
-  if (isFlightMethod(journey.method)) {
-    const points = getGreatCirclePoints(fromLocation, toLocation, 96);
+  if (routeType === "flight") {
+    return await regenerateFreshRoute("flight", journey, fromLocation, toLocation, () => {
+      return buildFlightRoute(fromLocation, toLocation);
+    });
+  }
 
-    return {
-      points,
-      distanceMetres: null,
-      durationSeconds: null,
-      source: "Great-circle flight route"
-    };
+  if (routeType === "road" || routeType === "bus" || routeType === "hitch") {
+    return await regenerateFreshRoute(routeType, journey, fromLocation, toLocation, () => {
+      return fetchRoadRoute(fromLocation, toLocation);
+    });
   }
 
   return null;
@@ -74,6 +92,14 @@ async function loadSavedOrGeneratedRailRoute(journey, fromLocation, toLocation) 
   if (regeneratedRoute) {
     console.log(`Using manually regenerated rail route for ${journey.from} → ${journey.to}`);
     return regeneratedRoute;
+  }
+
+  const sharedRoute = await getSharedRoute("rail", journey, fromLocation, toLocation);
+
+  if (sharedRoute) {
+    console.log(`Using shared rail route-cache.json route for ${journey.from} → ${journey.to}`);
+    setCachedRoute("rail", fromLocation, toLocation, sharedRoute);
+    return sharedRoute;
   }
 
   const savedRoute = await getSavedRailRoute(journey);
@@ -103,6 +129,8 @@ async function loadSavedOrGeneratedRailRoute(journey, fromLocation, toLocation) 
         cacheUrl: new URL("../../arcgis-rail-network-cache.json", import.meta.url).href,
         onLog: (message) => console.log(`[UK rail] ${message}`)
       });
+    }, {
+      skipSharedLookup: true
     });
   }
 
@@ -111,6 +139,8 @@ async function loadSavedOrGeneratedRailRoute(journey, fromLocation, toLocation) 
 
     return await loadCachedOrFreshRoute("rail", journey, fromLocation, toLocation, () => {
       return fetchTransitousRailRoute(fromLocation, toLocation);
+    }, {
+      skipSharedLookup: true
     });
   }
 
@@ -145,14 +175,18 @@ async function regenerateFreshRoute(routeType, journey, fromLocation, toLocation
       return await fetchRoute();
     });
 
-    if (!route || !Array.isArray(route.points) || route.points.length < 2) {
+    if (!isUsableRoute(route)) {
       console.warn(`No regenerated ${routeType} route found for ${journey.from} → ${journey.to}.`);
       setFailedRoute(routeType, fromLocation, toLocation, "Regeneration found no route");
       return null;
     }
 
-    setRegeneratedRoute(routeType, fromLocation, toLocation, route);
-    return route;
+    const routeWithType = withRouteMetadata(routeType, journey, route);
+
+    setRegeneratedRoute(routeType, fromLocation, toLocation, routeWithType);
+    saveGeneratedRouteToSharedCache(routeType, journey, routeWithType);
+
+    return routeWithType;
   } catch (error) {
     console.warn(`Could not regenerate ${routeType} route for ${journey.from} → ${journey.to}.`, error);
     setFailedRoute(routeType, fromLocation, toLocation, error.message || "Regeneration failed");
@@ -160,8 +194,25 @@ async function regenerateFreshRoute(routeType, journey, fromLocation, toLocation
   }
 }
 
-async function loadCachedOrFreshRoute(routeType, journey, fromLocation, toLocation, fetchRoute) {
+async function loadCachedOrFreshRoute(routeType, journey, fromLocation, toLocation, fetchRoute, options = {}) {
   try {
+    const regeneratedRoute = getRegeneratedRoute(routeType, fromLocation, toLocation);
+
+    if (regeneratedRoute) {
+      console.log(`Using manually regenerated ${routeType} route for ${journey.from} → ${journey.to}`);
+      return regeneratedRoute;
+    }
+
+    if (!options.skipSharedLookup) {
+      const sharedRoute = await getSharedRoute(routeType, journey, fromLocation, toLocation);
+
+      if (sharedRoute) {
+        console.log(`Using shared ${routeType} route-cache.json route for ${journey.from} → ${journey.to}`);
+        setCachedRoute(routeType, fromLocation, toLocation, sharedRoute);
+        return sharedRoute;
+      }
+    }
+
     const cachedRoute = getCachedRoute(routeType, fromLocation, toLocation);
 
     if (cachedRoute) {
@@ -181,18 +232,73 @@ async function loadCachedOrFreshRoute(routeType, journey, fromLocation, toLocati
       return await fetchRoute();
     });
 
-    if (!route || !Array.isArray(route.points) || route.points.length < 2) {
+    if (!isUsableRoute(route)) {
       console.warn(`No ${routeType} route found for ${journey.from} → ${journey.to}.`);
       setFailedRoute(routeType, fromLocation, toLocation, "No route found");
       return null;
     }
 
-    setCachedRoute(routeType, fromLocation, toLocation, route);
+    const routeWithType = withRouteMetadata(routeType, journey, route);
 
-    return route;
+    setCachedRoute(routeType, fromLocation, toLocation, routeWithType);
+    saveGeneratedRouteToSharedCache(routeType, journey, routeWithType);
+
+    return routeWithType;
   } catch (error) {
     console.warn(`Could not load ${routeType} route for ${journey.from} → ${journey.to}.`, error);
     setFailedRoute(routeType, fromLocation, toLocation, error.message || "Unknown error");
     return null;
   }
+}
+
+function buildFlightRoute(fromLocation, toLocation) {
+  const points = getGreatCirclePoints(fromLocation, toLocation, 96);
+
+  return {
+    points,
+    distanceMetres: calculatePathDistanceMetres(points),
+    durationSeconds: null,
+    source: "Great-circle flight route"
+  };
+}
+
+function withRouteMetadata(routeType, journey, route) {
+  return {
+    ...route,
+    type: routeType,
+    method: journey.method || route.method || "",
+    from: journey.from,
+    to: journey.to,
+    generatedAt: route.generatedAt || new Date().toISOString()
+  };
+}
+
+function isUsableRoute(route) {
+  return route && Array.isArray(route.points) && route.points.length >= 2;
+}
+
+function getRouteTypeForJourney(journey) {
+  const method = String(journey.method || "").trim().toLowerCase();
+
+  if (isTrainMethod(method)) {
+    return "rail";
+  }
+
+  if (isFlightMethod(method)) {
+    return "flight";
+  }
+
+  if (["bus", "coach", "minibus"].includes(method)) {
+    return "bus";
+  }
+
+  if (["hitch", "hitchhike", "hitchhiked", "hitchhiking"].includes(method)) {
+    return "hitch";
+  }
+
+  if (["driven", "drive", "driving", "car", "taxi"].includes(method)) {
+    return "road";
+  }
+
+  return null;
 }
